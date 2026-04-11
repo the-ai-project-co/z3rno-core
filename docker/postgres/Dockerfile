@@ -66,10 +66,17 @@ RUN set -eux; \
 
 # ---------------------------------------------------------------------------
 # 3. Install pgvectorscale from the Timescale pre-built release zip.
-#    Timescale publishes zipped shared objects (not .deb) per PG/arch combo:
-#      https://github.com/timescale/pgvectorscale/releases
-#    Each zip contains vectorscale.so + vectorscale--*.sql + vectorscale.control.
-#    We extract them into the standard PostgreSQL extension directories.
+#    The zip actually contains TWO .deb files per PG/arch combo:
+#      - pgvectorscale-postgresql-17_<ver>_<arch>.deb          (runtime)
+#      - pgvectorscale-postgresql-17-dbgsym_<ver>_<arch>.deb   (debug symbols)
+#    We install only the runtime .deb, which places the shared library at
+#    /usr/lib/postgresql/17/lib/vectorscale-${version}.so and the SQL/control
+#    files under /usr/share/postgresql/17/extension/.
+#
+#    Critical: the .so file is named vectorscale-<version>.so (with version
+#    suffix), but shared_preload_libraries='vectorscale' expects vectorscale.so.
+#    We create a versionless symlink so the preload name is stable across
+#    pgvectorscale upgrades.
 # ---------------------------------------------------------------------------
 RUN set -eux; \
     ARCH="$(dpkg --print-architecture)"; \
@@ -77,9 +84,9 @@ RUN set -eux; \
     curl -fSL -o /tmp/pvs.zip \
         "https://github.com/timescale/pgvectorscale/releases/download/${PGVECTORSCALE_VERSION}/pgvectorscale-${PGVECTORSCALE_VERSION}-pg17-${ARCH}.zip"; \
     unzip -o /tmp/pvs.zip -d /tmp/pvs; \
-    find /tmp/pvs -name "*.so" -exec cp -v {} /usr/lib/postgresql/17/lib/ \; ; \
-    find /tmp/pvs -name "*.sql" -exec cp -v {} /usr/share/postgresql/17/extension/ \; ; \
-    find /tmp/pvs -name "*.control" -exec cp -v {} /usr/share/postgresql/17/extension/ \; ; \
+    dpkg -i /tmp/pvs/pgvectorscale-postgresql-17_*_Linux_${ARCH}.deb; \
+    ln -sf "vectorscale-${PGVECTORSCALE_VERSION}.so" /usr/lib/postgresql/17/lib/vectorscale.so; \
+    ls -la /usr/lib/postgresql/17/lib/vectorscale* /usr/share/postgresql/17/extension/vectorscale* ; \
     rm -rf /tmp/pvs /tmp/pvs.zip
 
 # ---------------------------------------------------------------------------
