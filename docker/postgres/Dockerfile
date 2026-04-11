@@ -27,7 +27,7 @@ LABEL org.opencontainers.image.title="z3rno-postgres" \
       org.opencontainers.image.vendor="The AI Project Co."
 
 ARG AGE_REF=PG17
-ARG PGVECTORSCALE_VERSION=0.5.1
+ARG PGVECTORSCALE_VERSION=0.9.0
 
 # ---------------------------------------------------------------------------
 # 1. Install runtime extensions from the PGDG apt repo (already configured in
@@ -39,6 +39,7 @@ RUN set -eux; \
         build-essential \
         git \
         curl \
+        unzip \
         ca-certificates \
         postgresql-server-dev-17 \
         libreadline-dev \
@@ -64,25 +65,22 @@ RUN set -eux; \
     rm -rf /tmp/age
 
 # ---------------------------------------------------------------------------
-# 3. Install pgvectorscale from the Timescale pre-built debian package.
-#    Falls back to building from source if the pre-built .deb isn't available
-#    for this PG version (rare — Timescale ships PG17 binaries).
+# 3. Install pgvectorscale from the Timescale pre-built release zip.
+#    Timescale publishes zipped shared objects (not .deb) per PG/arch combo:
+#      https://github.com/timescale/pgvectorscale/releases
+#    Each zip contains vectorscale.so + vectorscale--*.sql + vectorscale.control.
+#    We extract them into the standard PostgreSQL extension directories.
 # ---------------------------------------------------------------------------
 RUN set -eux; \
     ARCH="$(dpkg --print-architecture)"; \
-    curl -fSL -o /tmp/pgvectorscale.deb \
-        "https://github.com/timescale/pgvectorscale/releases/download/${PGVECTORSCALE_VERSION}/pgvectorscale-${PGVECTORSCALE_VERSION}-pg17-${ARCH}.deb" \
-        || { echo "pgvectorscale binary not available for PG17/${ARCH}, building from source..."; \
-             apt-get update && apt-get install -y --no-install-recommends rustc cargo clang libclang-dev pkg-config; \
-             cd /tmp && git clone --depth 1 --branch "${PGVECTORSCALE_VERSION}" https://github.com/timescale/pgvectorscale.git; \
-             cd pgvectorscale/pgvectorscale; \
-             cargo install --locked cargo-pgrx --version "$(cargo pgrx --version 2>/dev/null || echo 0.12.5)" || true; \
-             cargo pgrx init --pg17 /usr/lib/postgresql/17/bin/pg_config; \
-             cargo pgrx install --release --pg-config /usr/lib/postgresql/17/bin/pg_config; \
-             cd / && rm -rf /tmp/pgvectorscale; \
-             exit 0; } ; \
-    dpkg -i /tmp/pgvectorscale.deb; \
-    rm /tmp/pgvectorscale.deb
+    mkdir -p /tmp/pvs; \
+    curl -fSL -o /tmp/pvs.zip \
+        "https://github.com/timescale/pgvectorscale/releases/download/${PGVECTORSCALE_VERSION}/pgvectorscale-${PGVECTORSCALE_VERSION}-pg17-${ARCH}.zip"; \
+    unzip -o /tmp/pvs.zip -d /tmp/pvs; \
+    find /tmp/pvs -name "*.so" -exec cp -v {} /usr/lib/postgresql/17/lib/ \; ; \
+    find /tmp/pvs -name "*.sql" -exec cp -v {} /usr/share/postgresql/17/extension/ \; ; \
+    find /tmp/pvs -name "*.control" -exec cp -v {} /usr/share/postgresql/17/extension/ \; ; \
+    rm -rf /tmp/pvs /tmp/pvs.zip
 
 # ---------------------------------------------------------------------------
 # 4. Strip build deps to slim the image. Keeps apt-installed runtime libs.
@@ -92,6 +90,7 @@ RUN set -eux; \
         build-essential \
         git \
         curl \
+        unzip \
         postgresql-server-dev-17 \
         libreadline-dev \
         zlib1g-dev \

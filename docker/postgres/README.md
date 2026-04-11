@@ -51,14 +51,14 @@ Optional build args:
 | Arg | Default | Description |
 |---|---|---|
 | `AGE_REF` | `PG17` | Git ref for Apache AGE source. Defaults to the `PG17` branch (not `master`, which tracks PG18). Pin to a release tag like `PG17/v1.7.0-rc0` for reproducible builds. |
-| `PGVECTORSCALE_VERSION` | `0.5.1` | Release version of pgvectorscale. |
+| `PGVECTORSCALE_VERSION` | `0.9.0` | Release version of pgvectorscale. Latest stable as of Nov 2025. Timescale ships pre-built zips per PG version and architecture. |
 
 Example override:
 
 ```bash
 docker build \
     --build-arg AGE_REF=PG17/v1.7.0-rc0 \
-    --build-arg PGVECTORSCALE_VERSION=0.5.1 \
+    --build-arg PGVECTORSCALE_VERSION=0.9.0 \
     -t ghcr.io/the-ai-project-co/z3rno-postgres:17 \
     .
 ```
