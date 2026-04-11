@@ -1,0 +1,57 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+jobs:
+  publish:
+    name: Publish to PyPI (dry run until Week 8)
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      contents: read
+      id-token: write  # for PyPI trusted publishing (enable in Week 8)
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+
+      - name: Detect project state
+        id: detect
+        shell: bash
+        run: |
+          if [ -f pyproject.toml ]; then
+            echo "has_pyproject=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_pyproject=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::No pyproject.toml yet — release workflow is in skeleton mode. Activate by adding pyproject.toml and tagging v0.1.0."
+          fi
+
+      - name: Build distributions
+        if: steps.detect.outputs.has_pyproject == 'true'
+        run: uv build
+
+      - name: Check distributions
+        if: steps.detect.outputs.has_pyproject == 'true'
+        run: |
+          ls -la dist/
+          echo "::notice::Dry run complete. To enable real publishing, uncomment the 'Publish to PyPI' step and configure a PyPI trusted publisher in Week 8."
+
+      # Enable in Week 8 once Test PyPI flow is confirmed:
+      # - name: Publish to PyPI
+      #   if: steps.detect.outputs.has_pyproject == 'true'
+      #   uses: pypa/gh-action-pypi-publish@release/v1
+      #   with:
+      #     # Uses OIDC trusted publishing — no token needed once configured
+      #     attestations: true
