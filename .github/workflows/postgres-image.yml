@@ -140,44 +140,58 @@ jobs:
             fi
           done
 
-      - name: Create each extension and verify it activates
+      - name: Create each extension in the public schema
         run: |
           set -e
-          docker exec z3rno-pg-smoke psql -U z3rno -d z3rno -v ON_ERROR_STOP=1 <<'SQL'
-            CREATE EXTENSION IF NOT EXISTS pgcrypto;
-            CREATE EXTENSION IF NOT EXISTS vector;
+          docker exec z3rno-pg-smoke psql -U z3rno -d z3rno -v ON_ERROR_STOP=1 -a <<'SQL'
+            SET search_path = public;
+            CREATE EXTENSION IF NOT EXISTS pgcrypto    WITH SCHEMA public;
+            CREATE EXTENSION IF NOT EXISTS vector      WITH SCHEMA public;
             CREATE EXTENSION IF NOT EXISTS vectorscale CASCADE;
-            CREATE EXTENSION IF NOT EXISTS age;
-            LOAD 'age';
-            SET search_path = ag_catalog, "$user", public;
             CREATE EXTENSION IF NOT EXISTS pg_cron;
             CREATE EXTENSION IF NOT EXISTS pgaudit;
-            \dx
           SQL
-
-      - name: Exercise each extension briefly
-        run: |
-          set -e
-          # pgvector: round-trip a vector
-          docker exec z3rno-pg-smoke psql -U z3rno -d z3rno -v ON_ERROR_STOP=1 -c "
-            SELECT '[1,2,3]'::vector <=> '[1,2,4]'::vector AS cosine_distance;
+          # AGE must be CREATE'd without WITH SCHEMA (it creates its own ag_catalog)
+          docker exec z3rno-pg-smoke psql -U z3rno -d z3rno -v ON_ERROR_STOP=1 -a -c "
+            CREATE EXTENSION IF NOT EXISTS age;
           "
-          # Apache AGE: create a graph and add a node
+          echo "--- \\dx (all extensions and their schemas) ---"
+          docker exec z3rno-pg-smoke psql -U z3rno -d z3rno -c "
+            SELECT e.extname, e.extversion, n.nspname AS schema
+            FROM pg_extension e
+            JOIN pg_namespace n ON e.extnamespace = n.oid
+            ORDER BY e.extname;
+          "
+
+      - name: Exercise pgvector (round-trip a vector)
+        run: |
+          docker exec z3rno-pg-smoke psql -U z3rno -d z3rno -v ON_ERROR_STOP=1 -c "
+            SET search_path = public;
+            SELECT '[1,2,3]'::public.vector <=> '[1,2,4]'::public.vector AS cosine_distance;
+          "
+
+      - name: Exercise Apache AGE (create graph, add node via Cypher, drop)
+        run: |
           docker exec z3rno-pg-smoke psql -U z3rno -d z3rno -v ON_ERROR_STOP=1 <<'SQL'
             LOAD 'age';
-            SET search_path = ag_catalog, "$user", public;
+            SET search_path = ag_catalog, public;
             SELECT create_graph('smoke_test_graph');
             SELECT * FROM cypher('smoke_test_graph', $$
-              CREATE (n:Person {name: 'test'})
+              CREATE (n:Person {name: 'smoke'})
               RETURN n
             $$) AS (n agtype);
             SELECT drop_graph('smoke_test_graph', true);
           SQL
-          # pg_cron: schedule a no-op job and unschedule it
+
+      - name: Exercise pg_cron (schedule + unschedule a job)
+        run: |
           docker exec z3rno-pg-smoke psql -U z3rno -d z3rno -v ON_ERROR_STOP=1 -c "
             SELECT cron.schedule('smoke_test_job', '* * * * *', 'SELECT 1');
             SELECT cron.unschedule('smoke_test_job');
           "
+
+      - name: All extensions verified
+        run: |
           echo ""
           echo "=========================================="
           echo "  All extensions verified end-to-end ✓"
