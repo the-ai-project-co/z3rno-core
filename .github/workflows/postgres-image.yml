@@ -33,7 +33,7 @@ jobs:
         with:
           dockerfile: docker/postgres/Dockerfile
           failure-threshold: warning
-          ignore: DL3008,DL3018  # Pinning apt versions would be too brittle for a weekly-updated image
+          ignore: DL3008,DL3018,DL3003  # Unpinned apt versions (brittle to pin) + cd inside RUN (idiomatic for single-shot build steps)
 
   build:
     name: Build & push
