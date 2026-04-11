@@ -159,10 +159,11 @@ ignore = [
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**/*.py" = [
-  "S101",   # asserts are fine in tests
-  "PLR2004", # magic numbers are fine in tests
-  "S105",   # hardcoded passwords are fine in tests
-  "S106",   # hardcoded passwords for kwargs are fine in tests
+  "S101",     # asserts are fine in tests
+  "PLR2004",  # magic numbers are fine in tests
+  "S105",     # hardcoded passwords are fine in tests
+  "S106",     # hardcoded passwords for kwargs are fine in tests
+  "PLC0415",  # imports inside functions are fine in tests (we test import side-effects)
 ]
 "src/z3rno_core/_version.py" = ["UP"]
 
@@ -193,14 +194,10 @@ namespace_packages = true
 explicit_package_bases = true
 files = ["src/z3rno_core", "tests"]
 
-[[tool.mypy.overrides]]
-module = [
-  "litellm.*",
-  "testcontainers.*",
-  "factory.*",
-  "celery.*",
-]
-ignore_missing_imports = true
+# Override entries for third-party libs without type stubs land here as
+# imports are added. Currently empty because nothing in the package imports
+# litellm/testcontainers/factory/celery yet — mypy warns about unused
+# override entries, so we add them just-in-time.
 
 [tool.pydantic-mypy]
 init_forbid_extra = true
