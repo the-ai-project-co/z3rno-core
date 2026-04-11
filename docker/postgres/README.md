@@ -50,14 +50,14 @@ Optional build args:
 
 | Arg | Default | Description |
 |---|---|---|
-| `AGE_REF` | `master` | Git ref for Apache AGE source (tag or branch) |
-| `PGVECTORSCALE_VERSION` | `0.5.1` | Release version of pgvectorscale |
+| `AGE_REF` | `PG17` | Git ref for Apache AGE source. Defaults to the `PG17` branch (not `master`, which tracks PG18). Pin to a release tag like `PG17/v1.7.0-rc0` for reproducible builds. |
+| `PGVECTORSCALE_VERSION` | `0.5.1` | Release version of pgvectorscale. |
 
 Example override:
 
 ```bash
 docker build \
-    --build-arg AGE_REF=release/PG17/1.5.0 \
+    --build-arg AGE_REF=PG17/v1.7.0-rc0 \
     --build-arg PGVECTORSCALE_VERSION=0.5.1 \
     -t ghcr.io/the-ai-project-co/z3rno-postgres:17 \
     .
@@ -104,6 +104,6 @@ This separation — image ships the preload config, application ships the CREATE
 
 ## Known warnings
 
-- **Apache AGE does not yet ship a tagged PG17 release.** This image compiles AGE from the master branch, which generally works but is not a stable release. When Apache AGE tags a PG17 release (expected 2026), pin `AGE_REF` to that tag and rebuild.
+- **Apache AGE PG17 is still in release-candidate status.** The `PG17` branch head compiles cleanly against PostgreSQL 17 (confirmed in CI), and the most recent AGE release for PG17 is `PG17/v1.7.0-rc0` (Feb 2026). This image compiles from the `PG17` branch head by default. When AGE ships 1.7.0 GA for PG17, pin `AGE_REF` to that tag and rebuild for reproducibility.
 - **`shared_preload_libraries`** is set to `'vectorscale,age,pg_cron,pgaudit'` via `ALTER SYSTEM` on first boot. If you mount a custom `postgresql.conf` that doesn't include these, pg_cron, AGE, pgvectorscale, and pgaudit will silently stop working. Always append to the list, never replace.
 - **`cron.database_name` tracks `POSTGRES_DB`.** pg_cron is single-database; the preload script points it at whatever `POSTGRES_DB` you launched the container with. If you need jobs in multiple databases, you'll need to run multiple pg_cron-enabled clusters.

@@ -13,9 +13,10 @@
 # Published as: ghcr.io/the-ai-project-co/z3rno-postgres:17
 # Used by: z3rno-server docker-compose, Helm charts (via z3rno-helm), CloudNativePG cluster
 #
-# WARNING — Apache AGE does not yet have a tagged PG17 release. We compile from
-# the master branch for PG17 compatibility. When AGE tags a PG17 release, pin
-# AGE_REF to that tag.
+# Apache AGE PG17 support lives on the `PG17` branch (not `master`, which is
+# tracking PG18). Latest release candidate as of Apr 2026: PG17/v1.7.0-rc0.
+# We compile from the `PG17` branch head for now; pin to a stable tag once
+# AGE ships 1.7.0 GA for PG17.
 
 FROM postgres:17-bookworm
 
@@ -25,7 +26,7 @@ LABEL org.opencontainers.image.title="z3rno-postgres" \
       org.opencontainers.image.licenses="Apache-2.0" \
       org.opencontainers.image.vendor="The AI Project Co."
 
-ARG AGE_REF=master
+ARG AGE_REF=PG17
 ARG PGVECTORSCALE_VERSION=0.5.1
 
 # ---------------------------------------------------------------------------
@@ -51,7 +52,7 @@ RUN set -eux; \
     rm -rf /var/lib/apt/lists/*
 
 # ---------------------------------------------------------------------------
-# 2. Compile Apache AGE from source (master branch, see WARNING above).
+# 2. Compile Apache AGE from the PG17 branch (see note at top of file).
 # ---------------------------------------------------------------------------
 RUN set -eux; \
     cd /tmp; \
