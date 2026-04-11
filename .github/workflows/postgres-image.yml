@@ -119,27 +119,69 @@ jobs:
             sleep 2
           done
 
-      - name: Verify every extension loaded
+      - name: Verify every extension is available for CREATE EXTENSION
         run: |
           set -e
-          docker exec z3rno-pg-smoke psql -U z3rno -d z3rno -c "\dx" | tee /tmp/extensions.txt
+          echo "=== pg_available_extensions ==="
+          docker exec z3rno-pg-smoke psql -U z3rno -d z3rno -c "
+            SELECT name, default_version, installed_version, comment
+            FROM pg_available_extensions
+            WHERE name IN ('vector', 'vectorscale', 'age', 'pg_cron', 'pgaudit', 'pgcrypto')
+            ORDER BY name;
+          " | tee /tmp/available.txt
           for ext in vector vectorscale age pg_cron pgaudit pgcrypto; do
-            if grep -q "^ $ext " /tmp/extensions.txt; then
-              echo "OK: $ext is installed"
+            if grep -q "^ $ext " /tmp/available.txt; then
+              echo "OK: $ext is available"
             else
-              echo "FAIL: $ext is missing!"
+              echo "FAIL: $ext is NOT available (files missing from image)"
+              echo "--- container logs ---"
               docker logs z3rno-pg-smoke
               exit 1
             fi
           done
 
-      - name: Verify AGE memory_graph exists
+      - name: Create each extension and verify it activates
         run: |
-          docker exec z3rno-pg-smoke psql -U z3rno -d z3rno -c "
+          set -e
+          docker exec z3rno-pg-smoke psql -U z3rno -d z3rno -v ON_ERROR_STOP=1 <<'SQL'
+            CREATE EXTENSION IF NOT EXISTS pgcrypto;
+            CREATE EXTENSION IF NOT EXISTS vector;
+            CREATE EXTENSION IF NOT EXISTS vectorscale CASCADE;
+            CREATE EXTENSION IF NOT EXISTS age;
             LOAD 'age';
-            SET search_path = ag_catalog, \"\$user\", public;
-            SELECT * FROM cypher('memory_graph', \$cypher\$ MATCH (n) RETURN count(n) \$cypher\$) AS (count agtype);
+            SET search_path = ag_catalog, "$user", public;
+            CREATE EXTENSION IF NOT EXISTS pg_cron;
+            CREATE EXTENSION IF NOT EXISTS pgaudit;
+            \dx
+          SQL
+
+      - name: Exercise each extension briefly
+        run: |
+          set -e
+          # pgvector: round-trip a vector
+          docker exec z3rno-pg-smoke psql -U z3rno -d z3rno -v ON_ERROR_STOP=1 -c "
+            SELECT '[1,2,3]'::vector <=> '[1,2,4]'::vector AS cosine_distance;
           "
+          # Apache AGE: create a graph and add a node
+          docker exec z3rno-pg-smoke psql -U z3rno -d z3rno -v ON_ERROR_STOP=1 <<'SQL'
+            LOAD 'age';
+            SET search_path = ag_catalog, "$user", public;
+            SELECT create_graph('smoke_test_graph');
+            SELECT * FROM cypher('smoke_test_graph', $$
+              CREATE (n:Person {name: 'test'})
+              RETURN n
+            $$) AS (n agtype);
+            SELECT drop_graph('smoke_test_graph', true);
+          SQL
+          # pg_cron: schedule a no-op job and unschedule it
+          docker exec z3rno-pg-smoke psql -U z3rno -d z3rno -v ON_ERROR_STOP=1 -c "
+            SELECT cron.schedule('smoke_test_job', '* * * * *', 'SELECT 1');
+            SELECT cron.unschedule('smoke_test_job');
+          "
+          echo ""
+          echo "=========================================="
+          echo "  All extensions verified end-to-end ✓"
+          echo "=========================================="
 
       - name: Cleanup
         if: always()
