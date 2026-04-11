@@ -143,7 +143,7 @@ jobs:
       - name: Create each extension in the public schema
         run: |
           set -e
-          docker exec z3rno-pg-smoke psql -U z3rno -d z3rno -v ON_ERROR_STOP=1 -a <<'SQL'
+          docker exec -i z3rno-pg-smoke psql -U z3rno -d z3rno -v ON_ERROR_STOP=1 -a <<'SQL'
             SET search_path = public;
             CREATE EXTENSION IF NOT EXISTS pgcrypto    WITH SCHEMA public;
             CREATE EXTENSION IF NOT EXISTS vector      WITH SCHEMA public;
@@ -172,7 +172,7 @@ jobs:
 
       - name: Exercise Apache AGE (create graph, add node via Cypher, drop)
         run: |
-          docker exec z3rno-pg-smoke psql -U z3rno -d z3rno -v ON_ERROR_STOP=1 <<'SQL'
+          docker exec -i z3rno-pg-smoke psql -U z3rno -d z3rno -v ON_ERROR_STOP=1 <<'SQL'
             LOAD 'age';
             SET search_path = ag_catalog, public;
             SELECT create_graph('smoke_test_graph');
