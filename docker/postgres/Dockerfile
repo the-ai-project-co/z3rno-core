@@ -100,11 +100,26 @@ RUN set -eux; \
     rm -rf /var/lib/apt/lists/* /tmp/*
 
 # ---------------------------------------------------------------------------
-# 5. initdb hooks — set shared_preload_libraries + pg_cron/pgaudit config via
-#    ALTER SYSTEM on first boot. The postgres entrypoint stops and restarts
-#    the server after initdb scripts run, so the preload-time settings take
-#    effect cleanly. See docker-entrypoint-initdb.d/00-z3rno-preload.sh for
-#    the full explanation.
+# 5. Set shared_preload_libraries via sed on postgresql.conf.sample.
+#
+#    Why not ALTER SYSTEM?
+#    ALTER SYSTEM writes 'vectorscale,age,pg_cron,pgaudit' as a single quoted
+#    string to postgresql.auto.conf, and the startup parser treats the whole
+#    string as one library name — causing FATAL: could not access file
+#    "vectorscale,age,pg_cron,pgaudit". The postgresql.conf.sample format
+#    (main config, not auto.conf) parses comma-separated stringlists correctly.
+#    So we use the build-time sed for the list, and ALTER SYSTEM (via the
+#    initdb hook below) for single-value settings only.
+# ---------------------------------------------------------------------------
+RUN set -eux; \
+    sed -ri \
+        "s|^#?shared_preload_libraries = .*$|shared_preload_libraries = 'vectorscale,age,pg_cron,pgaudit'|" \
+        /usr/share/postgresql/postgresql.conf.sample
+
+# ---------------------------------------------------------------------------
+# 6. initdb hooks — single-value pg_cron/pgaudit settings via ALTER SYSTEM.
+#    Runs once on a fresh data directory; the postgres entrypoint restarts
+#    the cluster afterwards so preload-time settings take effect.
 #
 #    Extension CREATE statements are deliberately NOT here — that is the job
 #    of Alembic migration 001_create_extensions.py in z3rno-core, which runs
