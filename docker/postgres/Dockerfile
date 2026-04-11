@@ -84,7 +84,8 @@ RUN set -eux; \
     curl -fSL -o /tmp/pvs.zip \
         "https://github.com/timescale/pgvectorscale/releases/download/${PGVECTORSCALE_VERSION}/pgvectorscale-${PGVECTORSCALE_VERSION}-pg17-${ARCH}.zip"; \
     unzip -o /tmp/pvs.zip -d /tmp/pvs; \
-    dpkg -i /tmp/pvs/pgvectorscale-postgresql-17_*_Linux_${ARCH}.deb; \
+    ls -la /tmp/pvs; \
+    dpkg -i "/tmp/pvs/pgvectorscale-postgresql-17_${PGVECTORSCALE_VERSION}-Linux_${ARCH}.deb"; \
     ln -sf "vectorscale-${PGVECTORSCALE_VERSION}.so" /usr/lib/postgresql/17/lib/vectorscale.so; \
     ls -la /usr/lib/postgresql/17/lib/vectorscale* /usr/share/postgresql/17/extension/vectorscale* ; \
     rm -rf /tmp/pvs /tmp/pvs.zip
