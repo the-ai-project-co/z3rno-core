@@ -194,10 +194,12 @@ namespace_packages = true
 explicit_package_bases = true
 files = ["src/z3rno_core", "tests"]
 
-# Override entries for third-party libs without type stubs land here as
-# imports are added. Currently empty because nothing in the package imports
-# litellm/testcontainers/factory/celery yet — mypy warns about unused
-# override entries, so we add them just-in-time.
+[[tool.mypy.overrides]]
+module = ["pgvector.*"]
+ignore_missing_imports = true
+
+# Override entries for other third-party libs without type stubs land here
+# as imports are added (litellm, testcontainers, factory, celery).
 
 [tool.pydantic-mypy]
 init_forbid_extra = true
