@@ -23,7 +23,7 @@ from __future__ import annotations
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import BigInteger, Enum as SAEnum, LargeBinary, String, Text
+from sqlalchemy import BigInteger, Enum as SAEnum, Index, LargeBinary, String, Text
 from sqlalchemy.dialects.postgresql import INET, JSONB, UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -35,6 +35,13 @@ class AuditLog(Base, OrgScopedMixin, TimestampMixin):
     """Append-only audit trail for every memory operation."""
 
     __tablename__ = "audit_log"
+    __table_args__ = (
+        # Time-range queries within a tenant (dashboard, export, compliance).
+        # Aligns with monthly partitioning on created_at.
+        Index("ix_audit_log_org_created", "org_id", "created_at"),
+        # All audit rows for a specific memory (audit trail lookup).
+        Index("ix_audit_log_org_memory", "org_id", "memory_id"),
+    )
 
     # ------------------------------------------------------------------
     # Identity — BIGSERIAL because we expect millions of rows per tenant

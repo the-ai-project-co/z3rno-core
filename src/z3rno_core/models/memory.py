@@ -28,10 +28,12 @@ from sqlalchemy import (
     DateTime,
     Enum as SAEnum,
     Float,
+    Index,
     Integer,
     String,
     Text,
     func,
+    text,
 )
 from sqlalchemy.dialects.postgresql import JSONB, UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column
@@ -54,6 +56,7 @@ class Memory(Base, OrgScopedMixin, TimestampMixin):
 
     __tablename__ = "memories"
     __table_args__ = (
+        # ----- Check constraints -----
         CheckConstraint(
             "importance_score >= 0 AND importance_score <= 1",
             name="importance_score_range",
@@ -65,6 +68,33 @@ class Memory(Base, OrgScopedMixin, TimestampMixin):
         CheckConstraint(
             "recall_count >= 0",
             name="recall_count_non_negative",
+        ),
+        # ----- Composite indexes -----
+        # Hot-path: all tenant-scoped recall queries filter by org_id + agent_id
+        # and need only "currently valid" rows (valid_to IS NULL).
+        Index("ix_memories_org_agent_valid", "org_id", "agent_id", "valid_to"),
+        # Temporal point-in-time queries: WHERE valid_from <= $ts AND (valid_to IS NULL OR valid_to > $ts)
+        Index("ix_memories_valid_range", "valid_from", "valid_to"),
+        # ----- Partial indexes -----
+        # The vast majority of queries only touch non-deleted rows.
+        Index(
+            "ix_memories_active",
+            "org_id",
+            "agent_id",
+            "memory_type",
+            postgresql_where=text("deleted_at IS NULL"),
+        ),
+        # ----- GIN index on JSONB metadata -----
+        Index("ix_memories_metadata", "metadata", postgresql_using="gin"),
+        # ----- HNSW vector index for similarity search -----
+        # pgvector 0.8+ HNSW with cosine distance. In production, create with
+        # CONCURRENTLY via Alembic migration to avoid locking the table.
+        Index(
+            "ix_memories_embedding_hnsw",
+            "embedding",
+            postgresql_using="hnsw",
+            postgresql_with={"m": 16, "ef_construction": 200},
+            postgresql_ops={"embedding": "vector_cosine_ops"},
         ),
     )
 

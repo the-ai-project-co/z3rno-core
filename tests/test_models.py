@@ -300,3 +300,33 @@ def test_metadata_collects_all_seven_tables() -> None:
         "audit_log",
     }
     assert expected.issubset(table_names), f"missing tables: {expected - table_names}"
+
+
+# ---------------------------------------------------------------------------
+# Indexing strategy — composite and specialised indexes
+# ---------------------------------------------------------------------------
+
+
+def test_memories_has_composite_indexes() -> None:
+    """Doc 08 §4.2 indexing: composite B-tree, partial, GIN, and HNSW indexes."""
+    table = cast(Table, Memory.__table__)
+    index_names = {idx.name for idx in table.indexes}
+    expected = {
+        "ix_memories_org_agent_valid",
+        "ix_memories_valid_range",
+        "ix_memories_active",
+        "ix_memories_metadata",
+        "ix_memories_embedding_hnsw",
+    }
+    assert expected.issubset(index_names), f"missing indexes: {expected - index_names}"
+
+
+def test_audit_log_has_composite_indexes() -> None:
+    """Audit log composite indexes for time-range and memory-trail queries."""
+    table = cast(Table, AuditLog.__table__)
+    index_names = {idx.name for idx in table.indexes}
+    expected = {
+        "ix_audit_log_org_created",
+        "ix_audit_log_org_memory",
+    }
+    assert expected.issubset(index_names), f"missing indexes: {expected - index_names}"
