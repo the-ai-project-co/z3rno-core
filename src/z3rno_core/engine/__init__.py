@@ -14,11 +14,14 @@ from z3rno_core.engine.embedding import (
     NoOpEmbeddingProvider,
     get_embedding_provider,
 )
+from z3rno_core.engine.forget import ForgetError, ForgetResult, forget
 from z3rno_core.engine.recall import RecallError, RecallResult, recall
 from z3rno_core.engine.store import RelationshipInput, StoreError, StoreResult, store
 
 __all__ = [
     "EmbeddingProvider",
+    "ForgetError",
+    "ForgetResult",
     "LiteLLMEmbeddingProvider",
     "NoOpEmbeddingProvider",
     "RecallError",
@@ -28,6 +31,7 @@ __all__ = [
     "StoreResult",
     "compute_row_hash",
     "create_audit_entry",
+    "forget",
     "get_embedding_provider",
     "recall",
     "store",
