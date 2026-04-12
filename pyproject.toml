@@ -175,6 +175,12 @@ ignore = [
   "PLR0915",  # many statements are fine in seed scripts
   "S311",     # pseudo-random is fine for seed data
 ]
+"src/z3rno_core/engine/**/*.py" = [
+  "S608",     # Dynamic SQL construction is inherent to the query builder
+  "PLR0912",  # recall() has many branches by design (filter combinations)
+  "PLR0915",  # recall() has many statements by design (multi-step pipeline)
+  "PLR2004",  # Magic values are row indices from SQL result tuples
+]
 "src/z3rno_core/graph/**/*.py" = [
   "S608",     # AGE Cypher queries require string interpolation (no parameterized Cypher)
 ]
