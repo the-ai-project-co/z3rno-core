@@ -270,4 +270,4 @@ exclude_lines = [
 ]
 show_missing = true
 skip_covered = false
-fail_under = 0  # raised as code lands; bumped to 90 by end of Phase 1
+fail_under = 55  # raised from 0; step toward 90 (needs integration tests for async DB code)
