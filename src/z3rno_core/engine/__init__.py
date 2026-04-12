@@ -8,6 +8,14 @@ database writes atomically within a single transaction.
 from __future__ import annotations
 
 from z3rno_core.engine.audit import compute_row_hash, create_audit_entry
+from z3rno_core.engine.audit_query import (
+    ActivitySummary,
+    AuditEntry,
+    AuditPage,
+    audit,
+    get_agent_activity_summary,
+    get_memory_lifecycle,
+)
 from z3rno_core.engine.embedding import (
     EmbeddingProvider,
     LiteLLMEmbeddingProvider,
@@ -19,6 +27,9 @@ from z3rno_core.engine.recall import RecallError, RecallResult, recall
 from z3rno_core.engine.store import RelationshipInput, StoreError, StoreResult, store
 
 __all__ = [
+    "ActivitySummary",
+    "AuditEntry",
+    "AuditPage",
     "EmbeddingProvider",
     "ForgetError",
     "ForgetResult",
@@ -29,10 +40,13 @@ __all__ = [
     "RelationshipInput",
     "StoreError",
     "StoreResult",
+    "audit",
     "compute_row_hash",
     "create_audit_entry",
     "forget",
+    "get_agent_activity_summary",
     "get_embedding_provider",
+    "get_memory_lifecycle",
     "recall",
     "store",
 ]
