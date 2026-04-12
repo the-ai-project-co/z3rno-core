@@ -23,6 +23,15 @@ from z3rno_core.engine.embedding import (
     get_embedding_provider,
 )
 from z3rno_core.engine.forget import ForgetError, ForgetResult, forget
+from z3rno_core.engine.lifecycle import (
+    DecayResult,
+    SweepResult,
+    TransitionResult,
+    decay_importance,
+    enforce_retention_cap,
+    sweep_expired_memories,
+    transition_memory,
+)
 from z3rno_core.engine.recall import RecallError, RecallResult, recall
 from z3rno_core.engine.store import RelationshipInput, StoreError, StoreResult, store
 
@@ -30,6 +39,7 @@ __all__ = [
     "ActivitySummary",
     "AuditEntry",
     "AuditPage",
+    "DecayResult",
     "EmbeddingProvider",
     "ForgetError",
     "ForgetResult",
@@ -40,13 +50,19 @@ __all__ = [
     "RelationshipInput",
     "StoreError",
     "StoreResult",
+    "SweepResult",
+    "TransitionResult",
     "audit",
     "compute_row_hash",
     "create_audit_entry",
+    "decay_importance",
+    "enforce_retention_cap",
     "forget",
     "get_agent_activity_summary",
     "get_embedding_provider",
     "get_memory_lifecycle",
     "recall",
     "store",
+    "sweep_expired_memories",
+    "transition_memory",
 ]
