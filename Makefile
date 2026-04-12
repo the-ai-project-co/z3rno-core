@@ -35,43 +35,27 @@ help:
 # z3rno-server docker-compose stack. Override via env var if needed:
 #   DATABASE_URL=postgresql+asyncpg://... make migrate
 #
-DATABASE_URL ?= postgresql+asyncpg://z3rno:z3rno_dev_password@localhost:5432/z3rno
+DATABASE_URL ?= postgresql+psycopg://z3rno:z3rno_dev_password@localhost:5432/z3rno
 
 ## migrate              Apply all pending Alembic migrations (upgrade head)
 .PHONY: migrate
 migrate:
-	@if [ -f alembic.ini ]; then \
-		DATABASE_URL="$(DATABASE_URL)" uv run alembic upgrade head; \
-	else \
-		echo "skeleton mode: no alembic.ini yet — see Week 1 Wednesday (F1)"; \
-	fi
+	DATABASE_URL="$(DATABASE_URL)" uv run alembic upgrade head
 
 ## migrate-down         Roll back the most recent Alembic migration
 .PHONY: migrate-down
 migrate-down:
-	@if [ -f alembic.ini ]; then \
-		DATABASE_URL="$(DATABASE_URL)" uv run alembic downgrade -1; \
-	else \
-		echo "skeleton mode: no alembic.ini yet"; \
-	fi
+	DATABASE_URL="$(DATABASE_URL)" uv run alembic downgrade -1
 
 ## migrate-status       Show the current Alembic revision on the live database
 .PHONY: migrate-status
 migrate-status:
-	@if [ -f alembic.ini ]; then \
-		DATABASE_URL="$(DATABASE_URL)" uv run alembic current; \
-	else \
-		echo "skeleton mode: no alembic.ini yet"; \
-	fi
+	DATABASE_URL="$(DATABASE_URL)" uv run alembic current
 
 ## migrate-history      Show the full Alembic migration history
 .PHONY: migrate-history
 migrate-history:
-	@if [ -f alembic.ini ]; then \
-		DATABASE_URL="$(DATABASE_URL)" uv run alembic history --verbose; \
-	else \
-		echo "skeleton mode: no alembic.ini yet"; \
-	fi
+	DATABASE_URL="$(DATABASE_URL)" uv run alembic history --verbose
 
 ## migrate-new          Generate a new Alembic migration (usage: make migrate-new name=add_my_table)
 .PHONY: migrate-new
@@ -80,15 +64,16 @@ migrate-new:
 		echo "ERROR: 'name' is required. Usage: make migrate-new name=add_my_table"; \
 		exit 1; \
 	fi
-	@if [ -f alembic.ini ]; then \
-		DATABASE_URL="$(DATABASE_URL)" uv run alembic revision --autogenerate -m "$(name)"; \
-	else \
-		echo "skeleton mode: no alembic.ini yet"; \
-	fi
+	DATABASE_URL="$(DATABASE_URL)" uv run alembic revision --autogenerate -m "$(name)"
 
 # =============================================================================
 # Python developer targets (skeleton-mode until pyproject.toml lands)
 # =============================================================================
+
+## seed                 Load dev seed data (2 tenants, 500 memories, 1000 audit entries)
+.PHONY: seed
+seed:
+	DATABASE_URL="$(DATABASE_URL)" uv run python -m seeds.dev_seed
 
 ## test                 Run pytest (skeleton-mode until pyproject.toml lands)
 .PHONY: test

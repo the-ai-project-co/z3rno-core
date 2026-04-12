@@ -95,6 +95,8 @@ dev = [
   "mypy>=1.13.0",
   # Type stubs
   "types-redis>=4.6.0",
+  # Seed data
+  "numpy>=2.0.0",
   # Pre-commit (optional)
   "pre-commit>=4.0.0",
 ]
@@ -164,6 +166,12 @@ ignore = [
   "S105",     # hardcoded passwords are fine in tests
   "S106",     # hardcoded passwords for kwargs are fine in tests
   "PLC0415",  # imports inside functions are fine in tests (we test import side-effects)
+]
+"seeds/**/*.py" = [
+  "T201",     # print is fine in seed scripts (CLI output)
+  "PLR2004",  # magic numbers are fine in seed data
+  "PLR0915",  # many statements are fine in seed scripts
+  "S311",     # pseudo-random is fine for seed data
 ]
 "src/z3rno_core/_version.py" = ["UP"]
 
