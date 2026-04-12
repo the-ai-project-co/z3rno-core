@@ -162,6 +162,8 @@ ignore = [
 [tool.ruff.lint.per-file-ignores]
 "tests/**/*.py" = [
   "S101",     # asserts are fine in tests
+  "S110",     # try-except-pass is fine in tests (intentional error tolerance)
+  "S608",     # SQL injection warnings are fine in tests (trusted UUIDs)
   "PLR2004",  # magic numbers are fine in tests
   "S105",     # hardcoded passwords are fine in tests
   "S106",     # hardcoded passwords for kwargs are fine in tests
