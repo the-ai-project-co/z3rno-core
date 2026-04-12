@@ -26,39 +26,22 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
 
-      - name: Detect project state
-        id: detect
-        shell: bash
-        run: |
-          if [ -f pyproject.toml ]; then
-            echo "has_pyproject=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "has_pyproject=false" >> "$GITHUB_OUTPUT"
-            echo "::notice::No pyproject.toml yet — CI is running in skeleton mode and will no-op. Once code lands, all downstream steps will activate automatically."
-          fi
-
       - name: Install uv
-        if: steps.detect.outputs.has_pyproject == 'true'
         uses: astral-sh/setup-uv@v3
         with:
           enable-cache: true
 
       - name: Install dependencies
-        if: steps.detect.outputs.has_pyproject == 'true'
         run: uv sync --all-extras --dev
 
       - name: Ruff — lint
-        if: steps.detect.outputs.has_pyproject == 'true'
         run: uv run ruff check .
 
       - name: Ruff — format check
-        if: steps.detect.outputs.has_pyproject == 'true'
         run: uv run ruff format --check .
 
       - name: mypy — type check
-        if: steps.detect.outputs.has_pyproject == 'true'
         run: uv run mypy .
 
       - name: pytest — unit tests
-        if: steps.detect.outputs.has_pyproject == 'true'
         run: uv run pytest -v --cov --cov-report=term-missing
