@@ -1,25 +1,88 @@
 # z3rno-core
 
-> The core memory engine for Z3rno. PostgreSQL schema, SQLAlchemy models, Alembic migrations, and the `store` / `recall` / `forget` / `audit` library functions that power the `z3rno-server` REST API.
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
+[![CI](https://github.com/the-ai-project-co/z3rno-core/actions/workflows/ci.yml/badge.svg)](https://github.com/the-ai-project-co/z3rno-core/actions/workflows/ci.yml)
 
-**License:** Apache 2.0
-**Status:** Early development — not yet on PyPI
-**Part of:** [Z3rno](https://github.com/the-ai-project-co) — the database for AI agent memory
+Core memory engine for Z3rno -- PostgreSQL schema, SQLAlchemy models, Alembic migrations, and the store/recall/forget/audit library.
 
-## What this is
+## Features
 
-`z3rno-core` is a Python library that contains the authoritative PostgreSQL schema for the Z3rno memory database, the SQLAlchemy 2.0 models that back it, the Alembic migrations that evolve it, and the pure-Python engine functions that implement the four core operations: `store`, `recall`, `forget`, `audit`.
+- **7 relational tables** -- tenants, API keys, agents, memories, memory relationships, lifecycle policies, audit log
+- **15 Alembic migrations** -- fully versioned schema evolution
+- **Row-Level Security (RLS)** -- multi-tenant isolation at the database level
+- **SCD Type 2 versioning** -- temporal history for every memory mutation
+- **pgvector HNSW indexing** -- fast approximate nearest-neighbor vector search
+- **Apache AGE graph layer** -- entity and relationship traversal via Cypher queries
+- **Hash-chained audit log** -- tamper-evident record of every store, recall, forget, and update
 
-It is designed to be imported as a library by `z3rno-server` (the FastAPI REST API), not used directly by end users. End users talk to the server via `z3rno-sdk-python` or `z3rno-sdk-typescript`.
+## Quickstart
 
-## What this is not
+### Run migrations
 
-- Not a web server (that is `z3rno-server`).
-- Not an SDK (those are `z3rno-sdk-python` and `z3rno-sdk-typescript`).
-- Not a database driver — it uses `asyncpg` + `SQLAlchemy` under the hood.
+```bash
+# Set your database URL
+export DATABASE_URL="postgresql://z3rno:password@localhost:5432/z3rno"
 
-## Why
+# Install
+pip install -e .
 
-Every AI agent needs persistent memory. Existing solutions are fragmented (Mem0 is paywalled, Letta is framework-locked, Zep is immature). Z3rno is the purpose-built, PostgreSQL-native, Apache-2.0 answer — combining vector similarity (pgvector), graph relationships (Apache AGE), and temporal versioning (SCD Type 2) in one unified engine.
+# Apply all migrations
+alembic upgrade head
+```
 
-See the architecture doc for the full rationale.
+### Use the engine
+
+```python
+from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
+from z3rno_core.engine import store, recall, forget, audit
+
+engine = create_async_engine("postgresql+asyncpg://z3rno:password@localhost/z3rno")
+Session = async_sessionmaker(engine)
+
+async with Session() as db:
+    # Store a memory
+    memory = await store(db, org_id=org_id, agent_id="agent-1", content="User prefers dark mode")
+
+    # Recall by semantic similarity
+    results = await recall(db, org_id=org_id, agent_id="agent-1", query="user preferences", top_k=5)
+
+    # Soft-delete a memory
+    await forget(db, org_id=org_id, memory_id=memory.id)
+
+    # Query the audit trail
+    entries = await audit(db, org_id=org_id, agent_id="agent-1")
+```
+
+## Architecture
+
+The schema follows a strict dependency order:
+
+```
+tenants -> api_keys -> agents -> memories -> memory_relationships
+                                    |
+                                    +-> lifecycle_policies
+                                    +-> audit_log
+```
+
+All engine functions operate within a single async SQLAlchemy session and respect RLS via `SET LOCAL` on the org context.
+
+## Documentation
+
+- [SCHEMA.md](docs/SCHEMA.md) -- full table and column reference
+- [MULTI_TENANCY.md](docs/MULTI_TENANCY.md) -- RLS design and tenant isolation
+- [Architecture Decision Records](docs/adr/) -- design rationale
+
+## Development
+
+```bash
+uv sync --dev
+uv run ruff check .
+uv run mypy .
+uv run pytest
+```
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the full workflow.
+
+## License
+
+Apache 2.0 -- see [LICENSE](LICENSE).
