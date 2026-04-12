@@ -175,6 +175,9 @@ ignore = [
   "PLR0915",  # many statements are fine in seed scripts
   "S311",     # pseudo-random is fine for seed data
 ]
+"src/z3rno_core/graph/**/*.py" = [
+  "S608",     # AGE Cypher queries require string interpolation (no parameterized Cypher)
+]
 "src/z3rno_core/_version.py" = ["UP"]
 
 [tool.ruff.lint.isort]

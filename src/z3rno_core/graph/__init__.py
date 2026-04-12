@@ -1,11 +1,24 @@
-"""Apache AGE Cypher query builder and agtype decoder.
+"""Apache AGE graph operations for the z3rno memory graph.
 
-Populated in Week 1 Friday. See:
-
-- ``docs/research/apache-age-graph-patterns.md`` — design rationale
-- ``z3rno-process-docs/02-Detailed-Task-Breakdown.md`` Week 1 Friday — tasks
+Provides helpers to sync relational memory data to AGE graph vertices
+and edges, and to run common Cypher traversal queries.
 """
 
 from __future__ import annotations
 
-__all__: list[str] = []
+from z3rno_core.graph.queries import (
+    find_contradictions,
+    find_memory_chain,
+    find_related_memories,
+    find_shortest_path,
+)
+from z3rno_core.graph.sync import sync_memory_to_graph, sync_relationship_to_graph
+
+__all__ = [
+    "find_contradictions",
+    "find_memory_chain",
+    "find_related_memories",
+    "find_shortest_path",
+    "sync_memory_to_graph",
+    "sync_relationship_to_graph",
+]
