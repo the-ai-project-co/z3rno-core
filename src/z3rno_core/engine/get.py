@@ -68,7 +68,7 @@ async def get_memory(
     result = await conn.execute(
         text(f"""
             SELECT id, org_id, agent_id, user_id, memory_type, content, summary,
-                   memory_metadata, importance_score, recall_count, last_recalled_at,
+                   metadata, importance_score, recall_count, last_recalled_at,
                    embedding_model, pinned, created_at, valid_from, valid_to, deleted_at
             FROM memories
             WHERE org_id = CAST(:org_id AS uuid)
