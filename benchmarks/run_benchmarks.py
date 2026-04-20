@@ -215,6 +215,7 @@ def bench_ivfflat_vs_hnsw(conn, num_queries=50):  # noqa: ANN001, ANN201
         conn.commit()
 
         t0 = time.perf_counter()
+        conn.execute(text("SET maintenance_work_mem = '256MB'"))
         conn.execute(text(create_sql))
         conn.commit()
         build_time = time.perf_counter() - t0
