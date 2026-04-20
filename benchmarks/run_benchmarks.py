@@ -18,7 +18,7 @@ import json
 import os
 import statistics
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from uuid import uuid4
 
@@ -49,7 +49,7 @@ def format_vector(v: list[float]) -> str:
 # ─── Setup ────────────────────────────────────────────────────────────────────
 
 
-def setup_bench_tenant(conn):  # noqa: ANN001, ANN201
+def setup_bench_tenant(conn):
     """Create a benchmark tenant and agent."""
     org_id = uuid4()
     agent_id = uuid4()
@@ -74,7 +74,7 @@ def setup_bench_tenant(conn):  # noqa: ANN001, ANN201
 # ─── Benchmark 1: HNSW Vector Index ──────────────────────────────────────────
 
 
-def bench_hnsw(conn, org_id, agent_id, sizes=(10_000, 50_000, 100_000)):  # noqa: ANN001, ANN201
+def bench_hnsw(conn, org_id, agent_id, sizes=(10_000, 50_000, 100_000)):
     """Benchmark HNSW index build time and query latency."""
     print("\n" + "=" * 70)
     print("BENCHMARK 1: HNSW Vector Index — Build Time & Query Latency")
@@ -159,7 +159,9 @@ def bench_hnsw(conn, org_id, agent_id, sizes=(10_000, 50_000, 100_000)):  # noqa
         p50 = statistics.median(latencies)
         p95 = sorted(latencies)[int(len(latencies) * 0.95)]
         p99 = sorted(latencies)[int(len(latencies) * 0.99)]
-        print(f"  Query latency (top-10, 50 queries): avg={avg_lat:.1f}ms, p50={p50:.1f}ms, p95={p95:.1f}ms, p99={p99:.1f}ms")
+        print(
+            f"  Query latency (top-10, 50 queries): avg={avg_lat:.1f}ms, p50={p50:.1f}ms, p95={p95:.1f}ms, p99={p99:.1f}ms"
+        )
 
         results[size] = {
             "insert_time_s": round(insert_time, 2),
@@ -179,7 +181,7 @@ def bench_hnsw(conn, org_id, agent_id, sizes=(10_000, 50_000, 100_000)):  # noqa
 # ─── Benchmark 2: IVFFlat vs HNSW ────────────────────────────────────────────
 
 
-def bench_ivfflat_vs_hnsw(conn, num_queries=50):  # noqa: ANN001, ANN201
+def bench_ivfflat_vs_hnsw(conn, num_queries=50):
     """Compare IVFFlat and HNSW recall@10 and latency using existing data."""
     print("\n" + "=" * 70)
     print("BENCHMARK 2: IVFFlat vs HNSW — Recall@10 & Latency Comparison")
@@ -206,8 +208,14 @@ def bench_ivfflat_vs_hnsw(conn, num_queries=50):  # noqa: ANN001, ANN201
     results = {}
 
     for index_type, create_sql in [
-        ("hnsw", "CREATE INDEX bench_idx ON memories USING hnsw (embedding vector_cosine_ops) WITH (m = 16, ef_construction = 200)"),
-        ("ivfflat", "CREATE INDEX bench_idx ON memories USING ivfflat (embedding vector_cosine_ops) WITH (lists = 100)"),
+        (
+            "hnsw",
+            "CREATE INDEX bench_idx ON memories USING hnsw (embedding vector_cosine_ops) WITH (m = 16, ef_construction = 200)",
+        ),
+        (
+            "ivfflat",
+            "CREATE INDEX bench_idx ON memories USING ivfflat (embedding vector_cosine_ops) WITH (lists = 100)",
+        ),
     ]:
         print(f"\n  --- {index_type.upper()} ---")
         conn.execute(text("DROP INDEX IF EXISTS idx_memories_embedding_hnsw"))
@@ -272,7 +280,7 @@ def bench_ivfflat_vs_hnsw(conn, num_queries=50):  # noqa: ANN001, ANN201
 # ─── Benchmark 3: Audit Log 1M Rows ──────────────────────────────────────────
 
 
-def bench_audit_log(conn, org_id, agent_id, target=1_000_000):  # noqa: ANN001, ANN201
+def bench_audit_log(conn, org_id, agent_id, target=1_000_000):
     """Insert 1M audit log rows and benchmark query performance."""
     print("\n" + "=" * 70)
     print("BENCHMARK 3: Audit Log — 1M Row Insert & Query Performance")
@@ -333,10 +341,15 @@ def bench_audit_log(conn, org_id, agent_id, target=1_000_000):  # noqa: ANN001, 
         "count_by_operation": "SELECT operation, count(*) FROM audit_log WHERE org_id = CAST(:org AS uuid) GROUP BY operation",
         "recent_50": "SELECT * FROM audit_log WHERE org_id = CAST(:org AS uuid) ORDER BY created_at DESC LIMIT 50",
         "filter_by_operation": "SELECT * FROM audit_log WHERE org_id = CAST(:org AS uuid) AND operation = 'store' ORDER BY created_at DESC LIMIT 50",
-        "time_range_scan": f"SELECT count(*) FROM audit_log WHERE org_id = CAST(:org AS uuid) AND created_at >= '2026-04-20' AND created_at < '2026-04-21'",
+        "time_range_scan": "SELECT count(*) FROM audit_log WHERE org_id = CAST(:org AS uuid) AND created_at >= '2026-04-20' AND created_at < '2026-04-21'",
     }
 
-    results = {"insert_time_s": round(insert_time, 2), "rows": target, "rows_per_sec": round(target / insert_time), "queries": {}}
+    results = {
+        "insert_time_s": round(insert_time, 2),
+        "rows": target,
+        "rows_per_sec": round(target / insert_time),
+        "queries": {},
+    }
 
     print("\n  Query benchmarks (10 runs each):")
     for name, sql in queries.items():
@@ -371,7 +384,7 @@ def bench_audit_log(conn, org_id, agent_id, target=1_000_000):  # noqa: ANN001, 
 def main() -> None:
     print("Z3rno-core Benchmark Suite")
     print(f"Database: {DB_URL}")
-    print(f"Timestamp: {datetime.now(timezone.utc).isoformat()}")
+    print(f"Timestamp: {datetime.now(UTC).isoformat()}")
 
     with engine.connect() as conn:
         org_id, agent_id = setup_bench_tenant(conn)
@@ -381,7 +394,7 @@ def main() -> None:
         audit_results = bench_audit_log(conn, org_id, agent_id)
 
     all_results = {
-        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "timestamp": datetime.now(UTC).isoformat(),
         "database": DB_URL.split("@")[1] if "@" in DB_URL else DB_URL,
         "hnsw_benchmark": hnsw_results,
         "ivfflat_vs_hnsw": ivf_results,

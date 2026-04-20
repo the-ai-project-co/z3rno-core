@@ -224,11 +224,16 @@ class TestForgetHardDelete:
         assert call_kwargs["operation"] == "gdpr_delete"
 
     async def test_hard_delete_calls_graph_cleanup(self) -> None:
-        """Hard delete attempts to remove graph vertices."""
+        """Hard delete attempts to remove graph vertices via savepoint."""
         org_id = uuid4()
         agent_id = uuid4()
         mid = uuid4()
         conn = _make_mock_conn(rowcount=1)
+        # begin_nested() returns an async context manager (savepoint)
+        conn.begin_nested = MagicMock(return_value=AsyncMock(
+            __aenter__=AsyncMock(),
+            __aexit__=AsyncMock(return_value=False),
+        ))
 
         with patch("z3rno_core.engine.forget.create_audit_entry", new_callable=AsyncMock):
             await forget(
@@ -239,8 +244,8 @@ class TestForgetHardDelete:
                 hard_delete=True,
             )
 
-        # run_sync should be called for graph cleanup
-        conn.run_sync.assert_called_once()
+        # begin_nested (savepoint) should be called for graph cleanup
+        conn.begin_nested.assert_called_once()
 
     async def test_hard_delete_graph_failure_swallowed(self) -> None:
         """Hard delete continues even if graph cleanup fails."""

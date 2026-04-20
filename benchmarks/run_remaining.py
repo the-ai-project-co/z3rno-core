@@ -112,8 +112,7 @@ def main() -> None:
             conn.execute(
                 text(
                     "INSERT INTO audit_log (org_id, agent_id, operation, "
-                    "memory_id, memory_type, created_at) VALUES "
-                    + ", ".join(values)
+                    "memory_id, memory_type, created_at) VALUES " + ", ".join(values)
                 ),
                 params,
             )

@@ -169,11 +169,14 @@ async def _hard_delete(
     id_list = ",".join(f"'{mid}'" for mid in memory_ids)
 
     # Delete AGE graph vertices and their edges (GDPR: no orphaned graph data)
+    # Uses a savepoint so AGE failures don't abort the main transaction
     for mid in memory_ids:
         try:
-            await conn.run_sync(lambda sync_conn: delete_memory_from_graph(sync_conn, mid))
+            async with conn.begin_nested():
+                await conn.run_sync(lambda sync_conn: delete_memory_from_graph(sync_conn, mid))
         except Exception:
             # AGE extension may not be loaded in all environments (e.g., tests)
+            # The savepoint rollback keeps the main transaction valid
             pass
 
     # Delete relationships first (FK constraint)
