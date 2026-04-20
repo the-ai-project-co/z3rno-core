@@ -54,6 +54,10 @@ async with Session() as db:
     entries = await audit(db, org_id=org_id, agent_id="agent-1")
 ```
 
+For a detailed step-by-step setup, see [QUICKSTART.md](QUICKSTART.md).
+
+Full documentation: [docs.z3rno.dev](https://docs.z3rno.dev)
+
 ## Architecture
 
 The schema follows a strict dependency order:
