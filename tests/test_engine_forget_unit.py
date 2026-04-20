@@ -406,19 +406,25 @@ class TestForgetCascade:
         assert hop2_id in result.memory_ids
 
     async def test_cascade_stops_when_frontier_empty(self) -> None:
-        """Cascade stops early when no new neighbors are found."""
+        """Cascade with depth=3 breaks early when frontier empties after hop 2.
+
+        Hop 1 finds hop1_id, hop 2 returns no new neighbors so frontier
+        becomes empty, and the third iteration hits the `break` at line 222.
+        Only 2 execute calls happen for _find_related_memories (not 3).
+        """
         org_id = uuid4()
         agent_id = uuid4()
         mid = uuid4()
         hop1_id = uuid4()
 
         conn = AsyncMock()
-        # First hop: finds hop1_id
+        # Hop 1: finds hop1_id
         hop1_result = MagicMock()
         hop1_result.fetchall.return_value = [(hop1_id,)]
-        # Second hop: no new neighbors (frontier is empty after dedup)
+        # Hop 2: no new neighbors → frontier becomes empty
         hop2_result = MagicMock()
         hop2_result.fetchall.return_value = []
+        # Hop 3 never runs because frontier is empty → break
         # Soft delete
         delete_result = MagicMock()
         delete_result.rowcount = 2
@@ -431,7 +437,7 @@ class TestForgetCascade:
                 agent_id=agent_id,
                 memory_id=mid,
                 cascade=True,
-                cascade_depth=2,
+                cascade_depth=3,
             )
 
         assert result.cascade_count == 1

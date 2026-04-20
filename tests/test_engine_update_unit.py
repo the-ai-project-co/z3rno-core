@@ -295,3 +295,59 @@ class TestUpdateMemoryExecution:
         )
 
         assert result.id == mid
+
+    @pytest.mark.asyncio
+    async def test_agent_id_lookup_returns_none(self) -> None:
+        """When agent_id is not provided and the lookup returns no row, audit uses None."""
+        mid = uuid4()
+        oid = uuid4()
+        now = datetime.now(tz=UTC)
+
+        conn = AsyncMock()
+        update_result = MagicMock()
+        update_result.fetchone.return_value = (mid,)
+
+        # agent_id not provided -> triggers lookup, which returns None
+        agent_result = MagicMock()
+        agent_result.fetchone.return_value = None
+
+        audit_hash_result = MagicMock()
+        audit_hash_result.fetchone.return_value = None
+
+        audit_insert_result = MagicMock()
+
+        get_result = MagicMock()
+        get_result.fetchone.return_value = (
+            mid,
+            oid,
+            None,
+            None,
+            "episodic",
+            "updated",
+            None,
+            {},
+            0.5,
+            0,
+            None,
+            None,
+            False,
+            now,
+            now,
+            None,
+            None,
+        )
+
+        conn.execute = AsyncMock(
+            side_effect=[
+                update_result,
+                agent_result,
+                audit_hash_result,
+                audit_insert_result,
+                get_result,
+            ]
+        )
+
+        result = await update_memory(conn, org_id=oid, memory_id=mid, content="updated")
+
+        assert result.id == mid
+        assert conn.execute.call_count == 5
