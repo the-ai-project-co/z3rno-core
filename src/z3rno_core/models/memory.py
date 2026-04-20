@@ -17,6 +17,7 @@ Key design points (locked):
 
 from __future__ import annotations
 
+import os
 from datetime import datetime
 from typing import Any
 from uuid import UUID, uuid4
@@ -42,10 +43,13 @@ from z3rno_core.models.base import Base, OrgScopedMixin, TimestampMixin
 from z3rno_core.models.enums import MemoryType
 
 # ----------------------------------------------------------------------------
-# Embedding dimension is hardcoded per ADR-001 (docs/adr/001-embedding-model.md).
-# Bumping this value requires a new ADR + migration to re-embed every memory.
+# Embedding dimension — configurable via EMBEDDING_DIMENSION env var.
+# Default: 1536 (OpenAI text-embedding-3-small per ADR-001).
+# Users with different models (Cohere 1024, local 384) can override.
+# Note: changing this value on an existing database requires a migration
+# to ALTER the vector column size and re-embed all memories.
 # ----------------------------------------------------------------------------
-EMBEDDING_DIMENSION = 1536
+EMBEDDING_DIMENSION = int(os.environ.get("EMBEDDING_DIMENSION", "1536"))
 
 
 class Memory(Base, OrgScopedMixin, TimestampMixin):

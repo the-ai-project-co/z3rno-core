@@ -112,6 +112,29 @@ install:
 	fi
 
 # =============================================================================
+# Schema generation
+# =============================================================================
+
+## schema               Auto-generate docs/SCHEMA.md from SQLAlchemy models
+.PHONY: schema
+schema:
+	uv run python scripts/generate_schema.py
+
+# =============================================================================
+# API reference docs (mkdocs + mkdocstrings)
+# =============================================================================
+
+## docs                 Build the API reference docs (output in site/)
+.PHONY: docs
+docs:
+	uv run mkdocs build
+
+## docs-serve           Serve the API reference docs locally with live-reload
+.PHONY: docs-serve
+docs-serve:
+	uv run mkdocs serve
+
+# =============================================================================
 # Docker image (z3rno-postgres)
 # =============================================================================
 

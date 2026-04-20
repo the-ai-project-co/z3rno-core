@@ -26,5 +26,6 @@ See Also
 """
 
 from z3rno_core._version import __version__
+from z3rno_core.config import ConnectionConfig, create_async_engine_from_config
 
-__all__ = ["__version__"]
+__all__ = ["ConnectionConfig", "__version__", "create_async_engine_from_config"]

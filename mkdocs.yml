@@ -1,0 +1,45 @@
+site_name: z3rno-core API Reference
+site_description: Auto-generated API reference for z3rno-core memory engine.
+repo_url: https://github.com/the-ai-project-co/z3rno-core
+
+theme:
+  name: material
+  palette:
+    scheme: slate
+    primary: deep purple
+    accent: amber
+  features:
+    - content.code.copy
+    - navigation.sections
+    - navigation.expand
+
+plugins:
+  - search
+  - mkdocstrings:
+      default_handler: python
+      handlers:
+        python:
+          paths: [src]
+          options:
+            show_source: true
+            show_root_heading: true
+            heading_level: 2
+            docstring_style: google
+            members_order: source
+
+nav:
+  - Home: index.md
+  - Engine:
+      - store: api/store.md
+      - recall: api/recall.md
+      - forget: api/forget.md
+      - audit: api/audit.md
+      - lifecycle: api/lifecycle.md
+      - get: api/get.md
+      - update: api/update.md
+      - embedding: api/embedding.md
+  - Models: api/models.md
+  - Graph: api/graph.md
+  - Temporal: api/temporal.md
+  - Security: api/security.md
+  - Config: api/config.md

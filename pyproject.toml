@@ -99,7 +99,14 @@ dev = [
   "numpy>=2.0.0",
   # Pre-commit (optional)
   "pre-commit>=4.0.0",
+  # API reference docs
+  "mkdocs>=1.6.0",
+  "mkdocs-material>=9.5.0",
+  "mkdocstrings[python]>=0.27.0",
 ]
+
+[project.scripts]
+schema = "scripts.generate_schema:main"
 
 [project.urls]
 Homepage = "https://z3rno.dev"
@@ -177,12 +184,22 @@ ignore = [
 ]
 "src/z3rno_core/engine/**/*.py" = [
   "S608",     # Dynamic SQL construction is inherent to the query builder
+  "S110",     # try-except-pass for AGE extension not loaded (forget.py)
+  "B023",     # Lambda loop variable binding in run_sync is intentional
+  "PLC0415",  # Lazy imports to avoid circular dependencies
   "PLR0912",  # recall() has many branches by design (filter combinations)
   "PLR0915",  # recall() has many statements by design (multi-step pipeline)
   "PLR2004",  # Magic values are row indices from SQL result tuples
+  "SIM105",   # contextlib.suppress not ideal for async conn.run_sync pattern
 ]
 "src/z3rno_core/graph/**/*.py" = [
   "S608",     # AGE Cypher queries require string interpolation (no parameterized Cypher)
+]
+"scripts/**/*.py" = [
+  "T201",     # print is fine in scripts (CLI output)
+  "INP001",   # scripts dir is not a package
+  "PLR0915",  # Many statements fine in scripts
+  "PERF401",  # List append in loop is clearer than extend for schema gen
 ]
 "src/z3rno_core/_version.py" = ["UP"]
 
@@ -270,4 +287,4 @@ exclude_lines = [
 ]
 show_missing = true
 skip_covered = false
-fail_under = 55  # raised from 0; step toward 90 (needs integration tests for async DB code)
+fail_under = 95  # raised from 55; engine functions now have thorough unit tests with mocked DB

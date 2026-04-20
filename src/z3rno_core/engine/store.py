@@ -54,6 +54,23 @@ class StoreError(Exception):
     """Raised when store() validation fails."""
 
 
+class DuplicateMemoryError(Exception):
+    """Raised when a near-duplicate memory is detected during store().
+
+    Attributes:
+        existing_memory_id: The UUID of the existing memory that matches.
+        similarity: The cosine similarity score between the two embeddings.
+    """
+
+    def __init__(self, existing_memory_id: UUID, similarity: float) -> None:
+        self.existing_memory_id = existing_memory_id
+        self.similarity = similarity
+        super().__init__(
+            f"Near-duplicate memory detected: existing_memory_id={existing_memory_id}, "
+            f"similarity={similarity:.4f}"
+        )
+
+
 async def store(
     conn: AsyncConnection,
     *,
@@ -67,6 +84,8 @@ async def store(
     relationships: list[RelationshipInput] | None = None,
     ttl_seconds: int | None = None,
     importance: float | None = None,
+    check_duplicates: bool = False,
+    duplicate_threshold: float = 0.95,
     # Audit context
     api_key_id: UUID | None = None,
     ip_address: str | None = None,
@@ -88,6 +107,11 @@ async def store(
         relationships: Optional list of relationships to create.
         ttl_seconds: Optional TTL in seconds (sets ttl_expires_at).
         importance: Optional importance score (0-1). Default 0.5.
+        check_duplicates: If True, check for near-duplicate memories before
+            storing. Requires an embedding_provider that returns a non-empty
+            embedding. Default False.
+        duplicate_threshold: Cosine similarity threshold (0-1) above which
+            a memory is considered a near-duplicate. Default 0.95.
         api_key_id: For audit log.
         ip_address: For audit log.
         user_agent: For audit log.
@@ -98,6 +122,8 @@ async def store(
 
     Raises:
         StoreError: If validation fails.
+        DuplicateMemoryError: If check_duplicates is True and a near-duplicate
+            memory exists (similarity > duplicate_threshold).
     """
     # --- Validation ---
     if not content or not content.strip():
@@ -115,6 +141,37 @@ async def store(
         embedding_model = embedding_provider.model_name
         if not embedding:  # NoOp provider returns empty list
             embedding = None
+
+    # --- Near-duplicate detection ---
+    if check_duplicates and embedding is not None:
+        vector_str = _format_vector(embedding)
+        dup_result = await conn.execute(
+            text("""
+                SELECT id,
+                       1 - (embedding <=> CAST(:query_vec AS vector)) AS similarity
+                FROM memories
+                WHERE org_id = CAST(:org_id AS uuid)
+                  AND agent_id = CAST(:agent_id AS uuid)
+                  AND embedding IS NOT NULL
+                  AND deleted_at IS NULL
+                  AND valid_to IS NULL
+                ORDER BY embedding <=> CAST(:query_vec AS vector)
+                LIMIT 1
+            """),
+            {
+                "query_vec": vector_str,
+                "org_id": str(org_id),
+                "agent_id": str(agent_id),
+            },
+        )
+        dup_row = dup_result.fetchone()
+        if dup_row is not None:
+            existing_id, similarity = dup_row[0], float(dup_row[1])
+            if similarity > duplicate_threshold:
+                raise DuplicateMemoryError(
+                    existing_memory_id=existing_id,
+                    similarity=similarity,
+                )
 
     # --- Compute TTL ---
     now = datetime.now().astimezone()

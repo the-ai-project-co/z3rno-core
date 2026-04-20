@@ -40,13 +40,20 @@ class AuditEntry:
 
 @dataclass(frozen=True)
 class AuditPage:
-    """Paginated audit log response."""
+    """Paginated audit log response.
+
+    Supports both OFFSET-based pagination (``page`` / ``page_size``) and
+    keyset pagination (``cursor`` / ``next_cursor``).  When keyset
+    pagination is used, ``page`` is ``0`` and ``total`` may be ``-1``
+    (not computed for performance).
+    """
 
     entries: list[AuditEntry]
     total: int
     page: int
     page_size: int
     has_next: bool
+    next_cursor: int | None = None
 
 
 @dataclass(frozen=True)
@@ -70,8 +77,20 @@ async def audit(
     time_range: tuple[datetime, datetime] | None = None,
     page: int = 1,
     page_size: int = 50,
+    cursor: int | None = None,
+    limit: int | None = None,
 ) -> AuditPage:
     """Query the audit log with optional filters and pagination.
+
+    Supports two pagination modes:
+
+    * **OFFSET** (default): pass ``page`` and ``page_size``.
+    * **Keyset** (preferred for large result-sets): pass ``cursor``
+      (the ``id`` of the last entry from the previous page) and
+      ``limit``.  The query uses ``WHERE id < :cursor`` which is
+      index-friendly and constant-time regardless of depth.
+
+    When ``cursor`` is provided it takes precedence over ``page``.
 
     Args:
         conn: Active async connection.
@@ -82,14 +101,17 @@ async def audit(
         memory_id: Filter by memory.
         memory_type: Filter by memory type.
         time_range: Filter by (start, end) created_at range.
-        page: Page number (1-indexed).
-        page_size: Results per page (max 100).
+        page: Page number (1-indexed).  Ignored when ``cursor`` is set.
+        page_size: Results per page (max 100).  Ignored when ``cursor`` is set.
+        cursor: Last-seen ``id`` for keyset pagination.  When provided,
+            only rows with ``id < cursor`` are returned.
+        limit: Maximum entries to return when using keyset pagination.
+            Capped at 100.  Defaults to 50 if not specified.
 
     Returns:
-        AuditPage with entries and pagination metadata.
+        AuditPage with entries, pagination metadata, and ``next_cursor``.
     """
-    page_size = min(page_size, 100)
-    offset = (page - 1) * page_size
+    use_keyset = cursor is not None
 
     conditions: list[str] = ["org_id = CAST(:org_id AS uuid)"]
     params: dict[str, Any] = {"org_id": str(org_id)}
@@ -114,6 +136,51 @@ async def audit(
         conditions.append("created_at <= CAST(:time_end AS timestamptz)")
         params["time_start"] = time_range[0].isoformat()
         params["time_end"] = time_range[1].isoformat()
+
+    if use_keyset:
+        # --- Keyset pagination path ---
+        effective_limit = min(limit or 50, 100)
+        conditions.append("id < :cursor")
+        params["cursor"] = cursor
+
+        where_clause = " AND ".join(conditions)
+
+        # Fetch limit+1 rows to detect whether a next page exists
+        params["limit"] = effective_limit + 1
+        result = await conn.execute(
+            text(f"""
+                SELECT id, org_id, agent_id, user_id, operation,
+                       memory_id, memory_type, details,
+                       prev_hash, row_hash, ip_address, user_agent,
+                       request_id, created_at
+                FROM audit_log
+                WHERE {where_clause}
+                ORDER BY id DESC
+                LIMIT :limit
+            """),
+            params,
+        )
+
+        rows = result.fetchall()
+        has_next = len(rows) > effective_limit
+        if has_next:
+            rows = rows[:effective_limit]
+
+        entries = [_row_to_entry(row) for row in rows]
+        next_cursor = entries[-1].id if entries else None
+
+        return AuditPage(
+            entries=entries,
+            total=-1,  # not computed for keyset pagination
+            page=0,
+            page_size=effective_limit,
+            has_next=has_next,
+            next_cursor=next_cursor,
+        )
+
+    # --- OFFSET pagination path (original behaviour) ---
+    page_size = min(page_size, 100)
+    offset = (page - 1) * page_size
 
     where_clause = " AND ".join(conditions)
 
@@ -141,25 +208,7 @@ async def audit(
         params,
     )
 
-    entries = [
-        AuditEntry(
-            id=row[0],
-            org_id=row[1],
-            agent_id=row[2],
-            user_id=row[3],
-            operation=row[4],
-            memory_id=row[5],
-            memory_type=row[6],
-            details=row[7] if row[7] else {},
-            prev_hash=row[8],
-            row_hash=row[9],
-            ip_address=row[10],
-            user_agent=row[11],
-            request_id=row[12],
-            created_at=row[13],
-        )
-        for row in result.fetchall()
-    ]
+    entries = [_row_to_entry(row) for row in result.fetchall()]
 
     return AuditPage(
         entries=entries,
@@ -167,6 +216,26 @@ async def audit(
         page=page,
         page_size=page_size,
         has_next=(offset + page_size) < total,
+    )
+
+
+def _row_to_entry(row: tuple) -> AuditEntry:  # type: ignore[type-arg]
+    """Convert a raw SQL row tuple to an ``AuditEntry``."""
+    return AuditEntry(
+        id=row[0],
+        org_id=row[1],
+        agent_id=row[2],
+        user_id=row[3],
+        operation=row[4],
+        memory_id=row[5],
+        memory_type=row[6],
+        details=row[7] if row[7] else {},
+        prev_hash=row[8],
+        row_hash=row[9],
+        ip_address=row[10],
+        user_agent=row[11],
+        request_id=row[12],
+        created_at=row[13],
     )
 
 
@@ -232,22 +301,4 @@ async def get_memory_lifecycle(
         {"org_id": str(org_id), "memory_id": str(memory_id)},
     )
 
-    return [
-        AuditEntry(
-            id=row[0],
-            org_id=row[1],
-            agent_id=row[2],
-            user_id=row[3],
-            operation=row[4],
-            memory_id=row[5],
-            memory_type=row[6],
-            details=row[7] if row[7] else {},
-            prev_hash=row[8],
-            row_hash=row[9],
-            ip_address=row[10],
-            user_agent=row[11],
-            request_id=row[12],
-            created_at=row[13],
-        )
-        for row in result.fetchall()
-    ]
+    return [_row_to_entry(row) for row in result.fetchall()]

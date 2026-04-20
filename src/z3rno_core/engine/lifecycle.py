@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
 
@@ -320,18 +320,96 @@ async def decay_importance(
             if new_score < min_threshold:
                 below_threshold += 1
 
-    # Batch update
-    for upd in updates:
+    # Batch update using a single UPDATE ... FROM (VALUES ...) statement
+    if updates:
+        values_list = ", ".join(f"(CAST('{upd['id']}' AS uuid), {upd['score']})" for upd in updates)
         await conn.execute(
-            text("""
-                UPDATE memories
-                SET importance_score = :score, updated_at = now()
-                WHERE id = CAST(:id AS uuid)
-            """),
-            upd,
+            text(f"""
+                UPDATE memories AS m
+                SET importance_score = v.new_score, updated_at = now()
+                FROM (VALUES {values_list}) AS v(id, new_score)
+                WHERE m.id = v.id
+            """)
         )
 
     return DecayResult(
         decayed_count=decayed_count,
         below_threshold_count=below_threshold,
     )
+
+
+# ---------------------------------------------------------------------------
+# Audit log partition management
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class PartitionResult:
+    """Result of an auto-partition run."""
+
+    created_count: int
+    partition_names: list[str]
+
+
+async def ensure_audit_partitions(
+    conn: AsyncConnection,
+    *,
+    months_ahead: int = 3,
+) -> PartitionResult:
+    """Create audit_log partitions for the next N months if they don't exist.
+
+    Should be called periodically (e.g., daily via Celery) to ensure
+    partitions always exist ahead of time. Without pre-created partitions,
+    inserts fall into the DEFAULT partition with degraded performance.
+
+    Args:
+        conn: Active async connection.
+        months_ahead: How many months of future partitions to create.
+
+    Returns:
+        PartitionResult with count and names of newly created partitions.
+    """
+    now = datetime.now(UTC)
+    created: list[str] = []
+
+    for offset in range(months_ahead + 1):
+        # Calculate the target month
+        month = now.month + offset
+        year = now.year
+        while month > 12:
+            month -= 12
+            year += 1
+
+        # Next month boundary
+        next_month = month + 1
+        next_year = year
+        if next_month > 12:
+            next_month = 1
+            next_year += 1
+
+        partition_name = f"audit_log_y{year}m{month:02d}"
+        range_start = f"{year}-{month:02d}-01"
+        range_end = f"{next_year}-{next_month:02d}-01"
+
+        # Check if partition already exists
+        result = await conn.execute(
+            text("""
+                SELECT 1 FROM pg_class
+                WHERE relname = :partition_name
+                  AND relkind = 'r'
+            """),
+            {"partition_name": partition_name},
+        )
+        if result.fetchone():
+            continue
+
+        # Create the partition
+        await conn.execute(
+            text(f"""
+                CREATE TABLE {partition_name} PARTITION OF audit_log
+                    FOR VALUES FROM ('{range_start}') TO ('{range_end}')
+            """)
+        )
+        created.append(partition_name)
+
+    return PartitionResult(created_count=len(created), partition_names=created)

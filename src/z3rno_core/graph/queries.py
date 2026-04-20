@@ -4,6 +4,11 @@ All queries use Apache AGE's cypher() function and return raw agtype
 results. The caller is responsible for parsing agtype values.
 
 Query patterns documented in docs/research/apache-age-graph-patterns.md.
+
+NOTE: Apache AGE does **not** support parameterized Cypher queries.
+All UUID values are interpolated into query strings after explicit
+validation via ``_validate_uuid_for_cypher``.  This is a defense-in-
+depth measure; monitor the AGE project for parameterized query support.
 """
 
 from __future__ import annotations
@@ -21,6 +26,19 @@ def _age_preamble() -> str:
     return "LOAD 'age'; SET search_path = ag_catalog, \"$user\", public;"
 
 
+def _validate_uuid_for_cypher(value: UUID) -> str:
+    """Validate and format a UUID for Cypher interpolation.
+
+    AGE does not support parameterized Cypher, so UUIDs are interpolated
+    directly into query strings.  This helper ensures only hex digits and
+    hyphens appear in the resulting string.
+    """
+    s = str(value)
+    if not all(c in "0123456789abcdef-" for c in s):
+        raise ValueError(f"Invalid UUID for Cypher: {s}")
+    return s
+
+
 def find_related_memories(
     conn: Connection,
     memory_id: UUID,
@@ -36,9 +54,10 @@ def find_related_memories(
     Returns:
         CursorResult with columns (related_id agtype, rel_type agtype).
     """
+    safe_id = _validate_uuid_for_cypher(memory_id)
     cypher = (
         f"SELECT * FROM cypher('{GRAPH_NAME}', $$ "
-        f"MATCH (m:Memory {{id: '{memory_id}'}})-[r*1..{max_hops}]-(related:Memory) "
+        f"MATCH (m:Memory {{id: '{safe_id}'}})-[r*1..{max_hops}]-(related:Memory) "
         f"RETURN DISTINCT related.id, type(last(r)) "
         f"$$) AS (related_id agtype, rel_type agtype)"
     )
@@ -64,10 +83,11 @@ def find_memory_chain(
     Returns:
         CursorResult with the chain path.
     """
+    safe_id = _validate_uuid_for_cypher(memory_id)
     edge_label = relationship_type.upper()
     cypher = (
         f"SELECT * FROM cypher('{GRAPH_NAME}', $$ "
-        f"MATCH path = (start:Memory {{id: '{memory_id}'}})"
+        f"MATCH path = (start:Memory {{id: '{safe_id}'}})"
         f"-[:{edge_label}*1..{max_depth}]->(target:Memory) "
         f"RETURN target.id, length(path) "
         f"$$) AS (target_id agtype, depth agtype)"
@@ -88,9 +108,10 @@ def find_contradictions(
     Returns:
         CursorResult with contradicting memory IDs.
     """
+    safe_id = _validate_uuid_for_cypher(memory_id)
     cypher = (
         f"SELECT * FROM cypher('{GRAPH_NAME}', $$ "
-        f"MATCH (m:Memory {{id: '{memory_id}'}})-[:CONTRADICTS]-(c:Memory) "
+        f"MATCH (m:Memory {{id: '{safe_id}'}})-[:CONTRADICTS]-(c:Memory) "
         f"RETURN c.id, c.memory_type "
         f"$$) AS (contradicting_id agtype, memory_type agtype)"
     )
@@ -114,10 +135,12 @@ def find_shortest_path(
     Returns:
         CursorResult with path information.
     """
+    safe_source = _validate_uuid_for_cypher(source_id)
+    safe_target = _validate_uuid_for_cypher(target_id)
     cypher = (
         f"SELECT * FROM cypher('{GRAPH_NAME}', $$ "
         f"MATCH path = shortestPath("
-        f"(s:Memory {{id: '{source_id}'}})-[*..{max_depth}]-(t:Memory {{id: '{target_id}'}}))"
+        f"(s:Memory {{id: '{safe_source}'}})-[*..{max_depth}]-(t:Memory {{id: '{safe_target}'}}))"
         f" RETURN length(path) "
         f"$$) AS (path_length agtype)"
     )

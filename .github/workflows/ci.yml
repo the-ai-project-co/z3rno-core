@@ -43,5 +43,5 @@ jobs:
       - name: mypy — type check
         run: uv run mypy .
 
-      - name: pytest — unit tests
+      - name: pytest — unit + integration tests
         run: uv run pytest -v --cov --cov-report=term-missing

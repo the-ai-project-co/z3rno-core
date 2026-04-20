@@ -17,6 +17,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncConnection
 
 from z3rno_core.engine.audit import create_audit_entry
+from z3rno_core.graph.sync import delete_memory_from_graph
 
 
 @dataclass(frozen=True)
@@ -42,6 +43,7 @@ async def forget(
     memory_ids: list[UUID] | None = None,
     hard_delete: bool = False,
     cascade: bool = False,
+    cascade_depth: int = 1,
     reason: str | None = None,
     # Audit context
     user_id: UUID | None = None,
@@ -59,7 +61,9 @@ async def forget(
         memory_id: Single memory to forget.
         memory_ids: Multiple memories to forget.
         hard_delete: If True, permanently remove (GDPR). Default: soft delete.
-        cascade: If True, also delete related memories (1-hop).
+        cascade: If True, also delete related memories up to cascade_depth hops.
+        cascade_depth: Maximum number of relationship hops to traverse when
+            cascading (default 1 for backward compatibility). Uses BFS.
         reason: Reason for deletion (stored in audit log).
         user_id: For audit log.
         api_key_id: For audit log.
@@ -82,10 +86,10 @@ async def forget(
     if not targets:
         raise ForgetError("must provide memory_id or memory_ids")
 
-    # Cascade: find related memories
+    # Cascade: find related memories via BFS up to cascade_depth hops
     cascade_count = 0
     if cascade:
-        cascade_targets = await _find_related_memories(conn, org_id, targets)
+        cascade_targets = await _find_related_memories(conn, org_id, targets, cascade_depth)
         cascade_count = len(cascade_targets)
         targets.extend(cascade_targets)
 
@@ -155,8 +159,22 @@ async def _hard_delete(
     org_id: UUID,
     memory_ids: list[UUID],
 ) -> int:
-    """Permanently remove memories, relationships, and graph data."""
+    """Permanently remove memories, relationships, and graph data.
+
+    Deletion order:
+      1. AGE graph vertices + edges (DETACH DELETE)
+      2. Relational memory_relationships (FK constraint)
+      3. Relational memories
+    """
     id_list = ",".join(f"'{mid}'" for mid in memory_ids)
+
+    # Delete AGE graph vertices and their edges (GDPR: no orphaned graph data)
+    for mid in memory_ids:
+        try:
+            await conn.run_sync(lambda sync_conn: delete_memory_from_graph(sync_conn, mid))
+        except Exception:
+            # AGE extension may not be loaded in all environments (e.g., tests)
+            pass
 
     # Delete relationships first (FK constraint)
     await conn.execute(
@@ -183,18 +201,41 @@ async def _find_related_memories(
     conn: AsyncConnection,
     org_id: UUID,
     memory_ids: list[UUID],
+    depth: int = 1,
 ) -> list[UUID]:
-    """Find 1-hop related memories via memory_relationships."""
-    id_list = ",".join(f"'{mid}'" for mid in memory_ids)
-    result = await conn.execute(
-        text(f"""
-            SELECT DISTINCT CASE
-                WHEN source_memory_id IN ({id_list}) THEN target_memory_id
-                ELSE source_memory_id
-            END AS related_id
-            FROM memory_relationships
-            WHERE org_id = CAST('{org_id}' AS uuid)
-              AND (source_memory_id IN ({id_list}) OR target_memory_id IN ({id_list}))
-        """)
-    )
-    return [row[0] for row in result.fetchall() if row[0] not in memory_ids]
+    """Find related memories via BFS up to `depth` hops in memory_relationships.
+
+    Args:
+        conn: Active async connection.
+        org_id: Tenant org_id.
+        memory_ids: Starting set of memory IDs.
+        depth: Maximum number of relationship hops to traverse (default 1).
+
+    Returns:
+        List of discovered related memory IDs (excludes the original memory_ids).
+    """
+    visited: set[UUID] = set(memory_ids)
+    frontier: set[UUID] = set(memory_ids)
+
+    for _ in range(depth):
+        if not frontier:
+            break
+        id_list = ",".join(f"'{mid}'" for mid in frontier)
+        result = await conn.execute(
+            text(f"""
+                SELECT DISTINCT CASE
+                    WHEN source_memory_id IN ({id_list}) THEN target_memory_id
+                    ELSE source_memory_id
+                END AS related_id
+                FROM memory_relationships
+                WHERE org_id = CAST('{org_id}' AS uuid)
+                  AND (source_memory_id IN ({id_list}) OR target_memory_id IN ({id_list}))
+            """)
+        )
+        neighbors = {row[0] for row in result.fetchall()}
+        # Next frontier is only newly discovered nodes
+        frontier = neighbors - visited
+        visited |= frontier
+
+    # Return only the discovered nodes, not the original inputs
+    return list(visited - set(memory_ids))

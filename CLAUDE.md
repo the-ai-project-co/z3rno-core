@@ -53,5 +53,5 @@ make seed                        # Load dev seed data
 
 - Unit tests: `uv run pytest` (no DB needed, 143 tests)
 - Integration tests: `DATABASE_URL=postgresql+psycopg://... uv run pytest -m integration`
-- Coverage threshold: 55% (unit only; async DB paths need testcontainers for more)
+- Coverage threshold: 95% (unit tests with mocked DB connections cover async engine paths)
 - Seeds and lifecycle tests excluded from per-file ignores (S608, PLR2004, etc.)

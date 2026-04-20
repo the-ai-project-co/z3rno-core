@@ -46,8 +46,23 @@ def upgrade() -> None:
                 RETURN NEW;
             END IF;
 
-            -- If only recall_count/last_recalled_at changed, allow without versioning
-            -- (recall is a hot-path operation, no need to version on every recall)
+            -- DESIGN DECISION (MVP): recall_count / last_recalled_at updates
+            -- are intentionally excluded from SCD Type 2 versioning.
+            --
+            -- Rationale: recall() is a hot-path operation executed on every
+            -- query. Creating a new temporal version for each recall would
+            -- generate massive table bloat with minimal analytical value for
+            -- the MVP use case. Temporal queries therefore will NOT show
+            -- recall frequency changes over time.
+            --
+            -- Revisit for analytics: If per-version recall frequency tracking
+            -- is needed (e.g., for "how popular was this memory last month?"
+            -- queries), this guard must be removed or replaced with a
+            -- periodic rollup strategy that snapshots recall_count into a
+            -- separate time-series table instead of creating full SCD rows.
+            --
+            -- See: z3rno-limitations/z3rno-core.md, issue #4 (SCD Type 2
+            -- trigger skips versioning for recall_count updates).
             IF NEW.recall_count IS DISTINCT FROM OLD.recall_count
                AND NEW.content = OLD.content
                AND NEW.summary IS NOT DISTINCT FROM OLD.summary

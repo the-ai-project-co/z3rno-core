@@ -68,6 +68,10 @@ async def recall(
     time_range: tuple[datetime, datetime] | None = None,
     as_of: datetime | None = None,
     include_deleted: bool = False,
+    # Relevance scoring weights (must sum to ~1.0)
+    similarity_weight: float = 0.60,
+    importance_weight: float = 0.25,
+    recency_weight: float = 0.15,
     # Audit context
     user_id: UUID | None = None,
     api_key_id: UUID | None = None,
@@ -93,6 +97,9 @@ async def recall(
         as_of: SCD Type 2 point-in-time query. Returns versions valid
             at this timestamp instead of current versions.
         include_deleted: If True, includes soft-deleted memories.
+        similarity_weight: Weight for cosine similarity in fused scoring (default 0.60).
+        importance_weight: Weight for importance score in fused scoring (default 0.25).
+        recency_weight: Weight for recency score in fused scoring (default 0.15).
         user_id: For audit log.
         api_key_id: For audit log.
         ip_address: For audit log.
@@ -101,7 +108,19 @@ async def recall(
 
     Returns:
         List of RecallResult ordered by relevance_score descending.
+
+    Raises:
+        RecallError: If scoring weights do not sum to approximately 1.0.
     """
+    # Validate scoring weights sum to ~1.0
+    weight_sum = similarity_weight + importance_weight + recency_weight
+    if abs(weight_sum - 1.0) > 0.01:
+        raise RecallError(
+            f"Scoring weights must sum to ~1.0 (got {weight_sum:.4f}): "
+            f"similarity={similarity_weight}, importance={importance_weight}, "
+            f"recency={recency_weight}"
+        )
+
     # --- Build the query ---
     conditions: list[str] = ["org_id = CAST(:org_id AS uuid)"]
     params: dict[str, Any] = {"org_id": str(org_id)}
@@ -142,10 +161,30 @@ async def recall(
     where_clause = " AND ".join(conditions)
 
     # --- Vector similarity search or fallback to recency ---
+    # Pre-filtering optimization: org_id is always the FIRST condition in the
+    # WHERE clause so that PostgreSQL can use it to narrow the candidate set
+    # BEFORE the HNSW index scan. This avoids scanning vectors belonging to
+    # other tenants, significantly improving recall latency in multi-tenant
+    # deployments.
+    #
+    # TODO(perf): For large multi-tenant deployments, create partial HNSW
+    # indexes per org_id to allow truly tenant-scoped ANN search:
+    #
+    #   CREATE INDEX ix_memories_embedding_hnsw_<org_id>
+    #   ON memories USING hnsw (embedding vector_cosine_ops)
+    #   WITH (m = 16, ef_construction = 200)
+    #   WHERE org_id = '<org_id>';
+    #
+    # This requires a migration per tenant (or a dynamic DDL job). Until then,
+    # the pre-filter WHERE clause + ix_memories_org_agent_valid B-tree index
+    # gives PostgreSQL enough information to narrow the scan via a bitmap
+    # intersection with the HNSW index.
     if query and embedding_provider:
         query_embedding = await embedding_provider.embed_text(query)
         if query_embedding:
             vector_str = "[" + ",".join(str(x) for x in query_embedding) + "]"
+            # The WHERE clause starts with org_id = ... so PostgreSQL can
+            # pre-filter via the B-tree index before the HNSW vector scan.
             sql = f"""
                 SELECT id, content, summary, memory_type, importance_score,
                        recall_count, created_at, valid_from, metadata,
@@ -179,13 +218,18 @@ async def recall(
         if query and embedding_provider and similarity < similarity_threshold:
             continue
 
-        # Fused relevance: 60% similarity + 25% importance + 15% recency
+        # Fused relevance scoring with configurable weights
         recency_days = max((now - row[6]).total_seconds() / 86400, 0.01)
         recency_score = min(1.0, 1.0 / recency_days)  # More recent = higher
 
         if query and embedding_provider:
-            relevance = 0.60 * similarity + 0.25 * importance + 0.15 * recency_score
+            relevance = (
+                similarity_weight * similarity
+                + importance_weight * importance
+                + recency_weight * recency_score
+            )
         else:
+            # No similarity available; redistribute weight between importance and recency
             relevance = 0.50 * importance + 0.50 * recency_score
 
         results.append(

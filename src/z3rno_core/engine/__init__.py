@@ -23,6 +23,7 @@ from z3rno_core.engine.embedding import (
     get_embedding_provider,
 )
 from z3rno_core.engine.forget import ForgetError, ForgetResult, forget
+from z3rno_core.engine.get import MemoryDetail, MemoryNotFoundError, get_memory
 from z3rno_core.engine.lifecycle import (
     DecayResult,
     SweepResult,
@@ -33,17 +34,27 @@ from z3rno_core.engine.lifecycle import (
     transition_memory,
 )
 from z3rno_core.engine.recall import RecallError, RecallResult, recall
-from z3rno_core.engine.store import RelationshipInput, StoreError, StoreResult, store
+from z3rno_core.engine.store import (
+    DuplicateMemoryError,
+    RelationshipInput,
+    StoreError,
+    StoreResult,
+    store,
+)
+from z3rno_core.engine.update import UpdateError, update_memory
 
 __all__ = [
     "ActivitySummary",
     "AuditEntry",
     "AuditPage",
     "DecayResult",
+    "DuplicateMemoryError",
     "EmbeddingProvider",
     "ForgetError",
     "ForgetResult",
     "LiteLLMEmbeddingProvider",
+    "MemoryDetail",
+    "MemoryNotFoundError",
     "NoOpEmbeddingProvider",
     "RecallError",
     "RecallResult",
@@ -52,6 +63,7 @@ __all__ = [
     "StoreResult",
     "SweepResult",
     "TransitionResult",
+    "UpdateError",
     "audit",
     "compute_row_hash",
     "create_audit_entry",
@@ -60,9 +72,11 @@ __all__ = [
     "forget",
     "get_agent_activity_summary",
     "get_embedding_provider",
+    "get_memory",
     "get_memory_lifecycle",
     "recall",
     "store",
     "sweep_expired_memories",
     "transition_memory",
+    "update_memory",
 ]

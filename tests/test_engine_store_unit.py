@@ -12,6 +12,7 @@ from uuid import uuid4
 import pytest
 
 from z3rno_core.engine.store import (
+    DuplicateMemoryError,
     RelationshipInput,
     StoreError,
     StoreResult,
@@ -200,3 +201,35 @@ class TestRelationshipInput:
         r1 = RelationshipInput(target_memory_id=uuid4(), relationship_type="a")
         r2 = RelationshipInput(target_memory_id=uuid4(), relationship_type="b")
         assert r1.metadata is not r2.metadata or r1.metadata == {}
+
+
+# ---------------------------------------------------------------------------
+# DuplicateMemoryError
+# ---------------------------------------------------------------------------
+
+
+class TestDuplicateMemoryError:
+    """Test DuplicateMemoryError exception."""
+
+    def test_is_exception(self) -> None:
+        assert issubclass(DuplicateMemoryError, Exception)
+
+    def test_message_contains_memory_id(self) -> None:
+        mid = uuid4()
+        err = DuplicateMemoryError(existing_memory_id=mid, similarity=0.98)
+        assert str(mid) in str(err)
+
+    def test_message_contains_similarity(self) -> None:
+        err = DuplicateMemoryError(existing_memory_id=uuid4(), similarity=0.9612)
+        assert "0.9612" in str(err)
+
+    def test_attributes(self) -> None:
+        mid = uuid4()
+        err = DuplicateMemoryError(existing_memory_id=mid, similarity=0.97)
+        assert err.existing_memory_id == mid
+        assert err.similarity == 0.97
+
+    def test_raises(self) -> None:
+        mid = uuid4()
+        with pytest.raises(DuplicateMemoryError, match="Near-duplicate"):
+            raise DuplicateMemoryError(existing_memory_id=mid, similarity=0.99)

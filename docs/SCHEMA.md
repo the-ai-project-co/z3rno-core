@@ -1,182 +1,251 @@
-# Z3rno Database Schema Reference
+# Z3rno Database Schema
 
-Authoritative schema for the Z3rno memory engine. All column names, types, and
-conventions are locked per **Doc 08 (Architecture Document) Section 4.2**.
+> Auto-generated from SQLAlchemy models on 2026-04-19 20:40 UTC.
+> Do not edit manually. Run `python scripts/generate_schema.py` to regenerate.
 
-> **Single source of truth:** The SQLAlchemy models in `src/z3rno_core/models/`
-> are the canonical schema definition. Alembic auto-generates migrations from
-> them. This document is a human-readable reference, not a substitute.
+## Tables
 
----
-
-## Tables (dependency order)
-
-| # | Table                  | PK type   | Tenant-scoped | Notes                                     |
-|---|------------------------|-----------|---------------|--------------------------------------------|
-| 1 | `tenants`              | UUID      | No (root)     | One row per organisation                   |
-| 2 | `agents`               | UUID      | Yes           | FK -> tenants.org_id                       |
-| 3 | `api_keys`             | UUID      | Yes           | FK -> tenants.org_id, BCrypt key_hash      |
-| 4 | `lifecycle_policies`   | UUID      | Yes           | UNIQUE(org_id, memory_type)                |
-| 5 | `memories`             | UUID      | Yes           | Core table, Vector(1536), SCD Type 2       |
-| 6 | `memory_relationships` | UUID      | Yes           | Two FKs to memories.id                     |
-| 7 | `audit_log`            | BIGSERIAL | Yes           | Append-only, hash-chained, monthly partitioned |
+- [agents](#agents)
+- [api_keys](#api_keys)
+- [audit_log](#audit_log)
+- [lifecycle_policies](#lifecycle_policies)
+- [memories](#memories)
+- [memory_relationships](#memory_relationships)
+- [tenants](#tenants)
 
 ---
 
-## Naming Conventions
+## agents
 
-All constraint/index names follow the SQLAlchemy naming convention configured
-in `Base.metadata`:
+### Columns
 
-```
-pk  -> pk_%(table_name)s
-fk  -> fk_%(table_name)s_%(column_0_name)s_%(referred_table_name)s
-ix  -> ix_%(column_0_label)s
-uq  -> uq_%(table_name)s_%(column_0_name)s
-ck  -> ck_%(table_name)s_%(constraint_name)s
-```
+| Column | Type | Nullable | Default |
+|--------|------|----------|---------|
+| `id` | `UUID` | No | gen_random_uuid() |
+| `external_id` | `VARCHAR(255)` | Yes |  |
+| `name` | `VARCHAR(255)` | No |  |
+| `metadata` | `JSONB` | No | {} |
+| `org_id` | `UUID` | No |  |
+| `created_at` | `DATETIME` | No | now() |
+| `updated_at` | `DATETIME` | No | now() |
 
----
+**Primary Key:** `id`
 
-## Locked Decisions
+### Foreign Keys
 
-These decisions are **not negotiable** without a new ADR:
+- `org_id` -> `tenants.org_id`
 
-| Decision | Rationale |
-|----------|-----------|
-| Tenant key is `org_id`, not `tenant_id` | Consistency with multi-org SaaS pattern |
-| `valid_to` is NULLable (NULL = current) | SCD Type 2; no 9999-12-31 sentinel |
-| No `is_current` or `is_deleted` booleans | Derived from `valid_to IS NULL` and `deleted_at IS NOT NULL` |
-| `recall_count` / `last_recalled_at` | Not `access_count` / `last_accessed_at` |
-| Audit column is `operation`, not `action` | Matches enum name `AuditOperation` |
-| `audit_log.memory_id` is NOT a FK | Audit rows must survive memory deletion (GDPR) |
-| `audit_log.id` is BIGSERIAL, not UUID | Millions of rows per tenant; sequential for partitioning |
-| Embedding dimension is 1536 | ADR-001: OpenAI text-embedding-3-small, hardcoded for MVP |
+### Indexes
+
+- `ix_agents_external_id`: `external_id`
+- `ix_agents_org_id`: `org_id`
 
 ---
 
-## Enums
+## api_keys
 
-| Enum             | Values |
-|------------------|--------|
-| `MemoryType`     | `working`, `episodic`, `semantic`, `procedural` |
-| `PlanTier`       | `community`, `pro`, `team`, `enterprise` |
-| `AuditOperation` | `store`, `recall`, `forget`, `update`, `quarantine`, `pin`, `unpin`, `export`, `gdpr_delete` |
-| `RelationshipType` | `derived_from`, `contradicts`, `supports`, `supersedes`, `related_to`, `caused_by` |
-| `DecayCurve`     | `exponential`, `logarithmic`, `step` |
-| `RetentionPolicy` | `standard`, `gdpr_strict`, `hipaa`, `financial` |
+### Columns
 
----
+| Column | Type | Nullable | Default |
+|--------|------|----------|---------|
+| `id` | `UUID` | No | gen_random_uuid() |
+| `name` | `VARCHAR(255)` | No |  |
+| `prefix` | `VARCHAR(32)` | No |  |
+| `key_hash` | `BLOB` | No |  |
+| `last_used_at` | `DATETIME` | Yes |  |
+| `expires_at` | `DATETIME` | Yes |  |
+| `revoked_at` | `DATETIME` | Yes |  |
+| `org_id` | `UUID` | No |  |
+| `created_at` | `DATETIME` | No | now() |
+| `updated_at` | `DATETIME` | No | now() |
 
-## Indexing Strategy
+**Primary Key:** `id`
 
-### `memories` table
+### Foreign Keys
 
-| Index | Type | Columns / Expression | Purpose |
-|-------|------|----------------------|---------|
-| `ix_memories_org_agent_valid` | B-tree (composite) | `org_id, agent_id, valid_to` | Hot-path: all tenant+agent recall queries with "currently valid" filter |
-| `ix_memories_valid_range` | B-tree (composite) | `valid_from, valid_to` | Temporal point-in-time queries |
-| `ix_memories_active` | B-tree (partial) | `org_id, agent_id, memory_type WHERE deleted_at IS NULL` | Skip soft-deleted rows on the hot path |
-| `ix_memories_metadata` | GIN | `metadata` | JSONB containment/key-exists queries |
-| `ix_memories_embedding_hnsw` | HNSW | `embedding vector_cosine_ops (m=16, ef_construction=200)` | Similarity search via pgvector |
-| `ix_agent_id` | B-tree | `agent_id` | Single-column lookup (auto from `index=True`) |
-| `ix_user_id` | B-tree | `user_id` | Single-column lookup (auto from `index=True`) |
-| `ix_org_id` | B-tree | `org_id` | Inherited from `OrgScopedMixin` |
+- `org_id` -> `tenants.org_id`
 
-### `audit_log` table
+### Indexes
 
-| Index | Type | Columns | Purpose |
-|-------|------|---------|---------|
-| `ix_audit_log_org_created` | B-tree (composite) | `org_id, created_at` | Time-range scans within a tenant (dashboard, export, compliance) |
-| `ix_audit_log_org_memory` | B-tree (composite) | `org_id, memory_id` | Full audit trail for a specific memory |
-| `ix_agent_id` | B-tree | `agent_id` | Auto from `index=True` |
-| `ix_user_id` | B-tree | `user_id` | Auto from `index=True` |
-| `ix_operation` | B-tree | `operation` | Auto from `index=True` |
-| `ix_memory_id` | B-tree | `memory_id` | Auto from `index=True` |
-| `ix_api_key_id` | B-tree | `api_key_id` | Auto from `index=True` |
-
-### Other tables
-
-All tenant-scoped tables inherit `org_id` (B-tree indexed) from `OrgScopedMixin`.
-
-| Table | Additional Indexes |
-|-------|--------------------|
-| `agents` | `external_id` (B-tree) |
-| `api_keys` | `prefix` (B-tree) |
-| `memory_relationships` | `source_memory_id`, `target_memory_id`, `relationship_type` (B-tree each) |
-| `lifecycle_policies` | `UNIQUE(org_id, memory_type)` |
+- `ix_api_keys_org_id`: `org_id`
+- `ix_api_keys_prefix`: `prefix`
 
 ---
 
-## Partitioning
+## audit_log
 
-**`audit_log`** is partitioned monthly on `created_at` using PostgreSQL native
-declarative partitioning. Partition management is a Celery task that
-pre-creates partitions 3 months ahead.
+### Columns
 
-> Partitioning DDL is created in the Alembic migration, not in the SQLAlchemy
-> model (SQLAlchemy's `__table_args__` doesn't natively support `PARTITION BY`).
+| Column | Type | Nullable | Default |
+|--------|------|----------|---------|
+| `id` | `BIGINT` | No |  |
+| `agent_id` | `UUID` | Yes |  |
+| `user_id` | `UUID` | Yes |  |
+| `operation` | `VARCHAR(11)` | No |  |
+| `memory_id` | `UUID` | Yes |  |
+| `memory_type` | `VARCHAR(10)` | Yes |  |
+| `details` | `JSONB` | No | {} |
+| `prev_hash` | `BLOB` | Yes |  |
+| `row_hash` | `BLOB` | No |  |
+| `api_key_id` | `UUID` | Yes |  |
+| `ip_address` | `INET` | Yes |  |
+| `user_agent` | `TEXT` | Yes |  |
+| `request_id` | `VARCHAR(64)` | Yes |  |
+| `org_id` | `UUID` | No |  |
+| `created_at` | `DATETIME` | No | now() |
+| `updated_at` | `DATETIME` | No | now() |
 
----
+**Primary Key:** `id`
 
-## Row-Level Security (RLS)
+### Foreign Keys
 
-Every tenant-scoped table has RLS policies that filter on:
+- `org_id` -> `tenants.org_id`
 
-```sql
-org_id = current_setting('app.current_org_id')::uuid
-```
+### Indexes
 
-RLS is created in Alembic migration (Week 1 Thursday). The application sets
-the session variable before every query.
-
----
-
-## Constraints
-
-### `memories`
-
-| Constraint | Type | Expression |
-|------------|------|------------|
-| `importance_score_range` | CHECK | `importance_score >= 0 AND importance_score <= 1` |
-| `anomaly_score_range` | CHECK | `anomaly_score >= 0 AND anomaly_score <= 1` |
-| `recall_count_non_negative` | CHECK | `recall_count >= 0` |
-
-### `lifecycle_policies`
-
-| Constraint | Type | Expression |
-|------------|------|------------|
-| `uq_lifecycle_policies_org_id_memory_type` | UNIQUE | `(org_id, memory_type)` |
-| `min_importance_range` | CHECK | `min_importance >= 0 AND min_importance <= 1` |
-| `decay_floor_range` | CHECK | `decay_floor >= 0 AND decay_floor <= 1` |
-| `decay_rate_non_negative` | CHECK | `decay_rate >= 0` |
-
-### `memory_relationships`
-
-| Constraint | Type | Expression |
-|------------|------|------------|
-| `weight_range` | CHECK | `weight >= 0 AND weight <= 1` |
-| `no_self_relationship` | CHECK | `source_memory_id != target_memory_id` |
+- `ix_audit_log_agent_id`: `agent_id`
+- `ix_audit_log_api_key_id`: `api_key_id`
+- `ix_audit_log_memory_id`: `memory_id`
+- `ix_audit_log_operation`: `operation`
+- `ix_audit_log_org_created`: `org_id`, `created_at`
+- `ix_audit_log_org_id`: `org_id`
+- `ix_audit_log_org_memory`: `org_id`, `memory_id`
+- `ix_audit_log_user_id`: `user_id`
 
 ---
 
-## ER Diagram (text)
+## lifecycle_policies
 
-```
-tenants (org_id PK)
-  |
-  +--< agents (org_id FK)
-  |
-  +--< api_keys (org_id FK)
-  |
-  +--< lifecycle_policies (org_id FK)
-  |
-  +--< memories (org_id FK)
-  |       |
-  |       +--< memory_relationships (source_memory_id FK, target_memory_id FK)
-  |
-  +--< audit_log (org_id FK, memory_id NOT a FK)
-```
+### Columns
 
-> Note: `memories.agent_id` is a UUID column but NOT a FK to `agents.id`.
-> This allows memories to survive agent deletion.
+| Column | Type | Nullable | Default |
+|--------|------|----------|---------|
+| `id` | `UUID` | No | gen_random_uuid() |
+| `memory_type` | `VARCHAR(10)` | No |  |
+| `max_ttl_days` | `INTEGER` | Yes |  |
+| `max_count` | `INTEGER` | Yes |  |
+| `min_importance` | `FLOAT` | No | 0.0 |
+| `decay_enabled` | `BOOLEAN` | No | true |
+| `decay_rate` | `FLOAT` | No | 0.01 |
+| `decay_curve` | `VARCHAR(11)` | No | exponential |
+| `decay_floor` | `FLOAT` | No | 0.1 |
+| `retention_policy` | `VARCHAR(11)` | No | standard |
+| `gdpr_auto_delete_days` | `INTEGER` | Yes |  |
+| `summarize_before_delete` | `BOOLEAN` | No | true |
+| `org_id` | `UUID` | No |  |
+| `created_at` | `DATETIME` | No | now() |
+| `updated_at` | `DATETIME` | No | now() |
+
+**Primary Key:** `id`
+
+### Foreign Keys
+
+- `org_id` -> `tenants.org_id`
+
+### Indexes
+
+- `ix_lifecycle_policies_org_id`: `org_id`
+
+### Unique Constraints
+
+- `uq_lifecycle_policies_org_id_memory_type`: `org_id`, `memory_type`
+
+---
+
+## memories
+
+### Columns
+
+| Column | Type | Nullable | Default |
+|--------|------|----------|---------|
+| `id` | `UUID` | No | gen_random_uuid() |
+| `agent_id` | `UUID` | No |  |
+| `user_id` | `UUID` | Yes |  |
+| `memory_type` | `VARCHAR(10)` | No | episodic |
+| `content` | `TEXT` | No |  |
+| `summary` | `TEXT` | Yes |  |
+| `metadata` | `JSONB` | No | {} |
+| `embedding` | `VECTOR(1536)` | Yes |  |
+| `embedding_model` | `VARCHAR(100)` | Yes |  |
+| `importance_score` | `FLOAT` | No | 0.5 |
+| `recall_count` | `INTEGER` | No | 0 |
+| `last_recalled_at` | `DATETIME` | Yes |  |
+| `valid_from` | `DATETIME` | No | now() |
+| `valid_to` | `DATETIME` | Yes |  |
+| `pinned` | `BOOLEAN` | No | false |
+| `ttl_expires_at` | `DATETIME` | Yes |  |
+| `deleted_at` | `DATETIME` | Yes |  |
+| `quarantined` | `BOOLEAN` | No | false |
+| `anomaly_score` | `FLOAT` | No | 0.0 |
+| `org_id` | `UUID` | No |  |
+| `created_at` | `DATETIME` | No | now() |
+| `updated_at` | `DATETIME` | No | now() |
+
+**Primary Key:** `id`
+
+### Foreign Keys
+
+- `org_id` -> `tenants.org_id`
+
+### Indexes
+
+- `ix_memories_active`: `org_id`, `agent_id`, `memory_type`
+- `ix_memories_agent_id`: `agent_id`
+- `ix_memories_embedding_hnsw`: `embedding`
+- `ix_memories_metadata`: `metadata`
+- `ix_memories_org_agent_valid`: `org_id`, `agent_id`, `valid_to`
+- `ix_memories_org_id`: `org_id`
+- `ix_memories_user_id`: `user_id`
+- `ix_memories_valid_range`: `valid_from`, `valid_to`
+
+---
+
+## memory_relationships
+
+### Columns
+
+| Column | Type | Nullable | Default |
+|--------|------|----------|---------|
+| `id` | `UUID` | No | gen_random_uuid() |
+| `source_memory_id` | `UUID` | No |  |
+| `target_memory_id` | `UUID` | No |  |
+| `relationship_type` | `VARCHAR(12)` | No |  |
+| `weight` | `FLOAT` | No | 1.0 |
+| `metadata` | `JSONB` | No | {} |
+| `org_id` | `UUID` | No |  |
+| `created_at` | `DATETIME` | No | now() |
+| `updated_at` | `DATETIME` | No | now() |
+
+**Primary Key:** `id`
+
+### Foreign Keys
+
+- `source_memory_id` -> `memories.id`
+- `target_memory_id` -> `memories.id`
+- `org_id` -> `tenants.org_id`
+
+### Indexes
+
+- `ix_memory_relationships_org_id`: `org_id`
+- `ix_memory_relationships_relationship_type`: `relationship_type`
+- `ix_memory_relationships_source_memory_id`: `source_memory_id`
+- `ix_memory_relationships_target_memory_id`: `target_memory_id`
+
+---
+
+## tenants
+
+### Columns
+
+| Column | Type | Nullable | Default |
+|--------|------|----------|---------|
+| `org_id` | `UUID` | No | gen_random_uuid() |
+| `name` | `VARCHAR(255)` | No |  |
+| `plan_tier` | `VARCHAR(10)` | No | community |
+| `settings` | `JSONB` | No | {} |
+| `suspended_at` | `DATETIME` | Yes |  |
+| `created_at` | `DATETIME` | No | now() |
+| `updated_at` | `DATETIME` | No | now() |
+
+**Primary Key:** `org_id`
+
