@@ -33,6 +33,7 @@ classifiers = [
   "Programming Language :: Python :: 3",
   "Programming Language :: Python :: 3.11",
   "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.14",
   "Topic :: Database",
   "Topic :: Scientific/Engineering :: Artificial Intelligence",
 ]
@@ -200,6 +201,7 @@ ignore = [
   "INP001",   # scripts dir is not a package
   "PLR0915",  # Many statements fine in scripts
   "PERF401",  # List append in loop is clearer than extend for schema gen
+  "PLR2004",  # magic numbers are fine in seed data
 ]
 "src/z3rno_core/_version.py" = ["UP"]
 
@@ -236,6 +238,10 @@ ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
 module = ["litellm", "litellm.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["testcontainers", "testcontainers.*"]
 ignore_missing_imports = true
 
 [tool.pydantic-mypy]

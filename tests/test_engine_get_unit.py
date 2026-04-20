@@ -7,6 +7,7 @@ get_memory function using mocked connections.
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 from uuid import uuid4
 
@@ -103,24 +104,24 @@ class TestMemoryDetail:
 
 def _make_memory_row(
     *,
-    memory_id=None,
-    org_id=None,
-    agent_id=None,
-    user_id=None,
+    memory_id: Any = None,
+    org_id: Any = None,
+    agent_id: Any = None,
+    user_id: Any = None,
     memory_type: str = "episodic",
     content: str = "test content",
     summary: str | None = None,
-    metadata: dict | None = None,  # type: ignore[type-arg]
+    metadata: dict[str, Any] | None = None,
     importance_score: float = 0.7,
     recall_count: int = 3,
-    last_recalled_at=None,
+    last_recalled_at: Any = None,
     embedding_model: str | None = "text-embedding-3-small",
     pinned: bool = False,
     created_at: datetime | None = None,
     valid_from: datetime | None = None,
-    valid_to=None,
-    deleted_at=None,
-) -> tuple:  # type: ignore[type-arg]
+    valid_to: Any = None,
+    deleted_at: Any = None,
+) -> tuple[Any, ...]:
     """Create a mock DB row matching the get_memory SELECT columns."""
     if memory_id is None:
         memory_id = uuid4()

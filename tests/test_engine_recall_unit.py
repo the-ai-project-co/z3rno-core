@@ -7,6 +7,7 @@ similarity threshold filtering, and edge cases using mocked connections.
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid4
 
@@ -129,7 +130,7 @@ def _make_mock_conn(
 
 def _make_memory_row(
     *,
-    memory_id=None,
+    memory_id: Any = None,
     content: str = "test content",
     summary: str | None = None,
     memory_type: str = "episodic",
@@ -137,9 +138,9 @@ def _make_memory_row(
     recall_count: int = 3,
     created_at: datetime | None = None,
     valid_from: datetime | None = None,
-    metadata: dict | None = None,  # type: ignore[type-arg]
+    metadata: dict[str, Any] | None = None,
     similarity: float | None = None,
-) -> tuple:  # type: ignore[type-arg]
+) -> tuple[Any, ...]:
     """Create a mock DB row matching the recall() SELECT columns."""
     if memory_id is None:
         memory_id = uuid4()

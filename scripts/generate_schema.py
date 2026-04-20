@@ -103,13 +103,15 @@ def generate_schema_md() -> str:
 
         # Unique constraints
         unique_constraints = [
-            c for c in table.constraints if c.__class__.__name__ == "UniqueConstraint" and c.columns
+            c
+            for c in table.constraints
+            if c.__class__.__name__ == "UniqueConstraint" and c.columns  # type: ignore[attr-defined]
         ]
         if unique_constraints:
             lines.append("### Unique Constraints")
             lines.append("")
             for uc in unique_constraints:
-                uc_cols = ", ".join(f"`{c.name}`" for c in uc.columns)
+                uc_cols = ", ".join(f"`{c.name}`" for c in uc.columns)  # type: ignore[attr-defined]
                 lines.append(f"- `{uc.name}`: {uc_cols}")
             lines.append("")
 

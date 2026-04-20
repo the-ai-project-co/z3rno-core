@@ -7,6 +7,7 @@ activity summary aggregation, and memory lifecycle queries.
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 from uuid import uuid4
 
@@ -27,20 +28,20 @@ from z3rno_core.engine.audit_query import (
 def _make_audit_row(
     *,
     entry_id: int = 1,
-    org_id=None,
-    agent_id=None,
-    user_id=None,
+    org_id: Any = None,
+    agent_id: Any = None,
+    user_id: Any = None,
     operation: str = "store",
-    memory_id=None,
+    memory_id: Any = None,
     memory_type: str | None = None,
-    details: dict | None = None,  # type: ignore[type-arg]
+    details: dict[str, Any] | None = None,
     prev_hash: bytes | None = None,
     row_hash: bytes = b"\x00" * 32,
     ip_address: str | None = None,
     user_agent: str | None = None,
     request_id: str | None = None,
     created_at: datetime | None = None,
-) -> tuple:  # type: ignore[type-arg]
+) -> tuple[Any, ...]:
     """Create a mock audit log row."""
     if org_id is None:
         org_id = uuid4()

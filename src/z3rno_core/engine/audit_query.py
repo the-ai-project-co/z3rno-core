@@ -14,7 +14,7 @@ from datetime import datetime
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import text
+from sqlalchemy import Row, text
 from sqlalchemy.ext.asyncio import AsyncConnection
 
 
@@ -219,7 +219,7 @@ async def audit(
     )
 
 
-def _row_to_entry(row: tuple) -> AuditEntry:  # type: ignore[type-arg]
+def _row_to_entry(row: Row[Any] | tuple[Any, ...]) -> AuditEntry:
     """Convert a raw SQL row tuple to an ``AuditEntry``."""
     return AuditEntry(
         id=row[0],
