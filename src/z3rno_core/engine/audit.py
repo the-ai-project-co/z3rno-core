@@ -133,6 +133,6 @@ async def create_audit_entry(
             "ip_address": ip_address,
             "user_agent": user_agent,
             "request_id": request_id,
-            "created_at": now.isoformat(),
+            "created_at": now,
         },
     )

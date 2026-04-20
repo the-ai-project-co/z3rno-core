@@ -269,6 +269,7 @@ markers = [
 filterwarnings = [
   "error",
   "ignore::DeprecationWarning:pydantic.*",
+  "ignore::pytest.PytestUnraisableExceptionWarning",
 ]
 
 # =============================================================================

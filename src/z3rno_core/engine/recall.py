@@ -133,7 +133,7 @@ async def recall(
     if as_of:
         conditions.append("valid_from <= CAST(:as_of AS timestamptz)")
         conditions.append("(valid_to IS NULL OR valid_to > CAST(:as_of AS timestamptz))")
-        params["as_of"] = as_of.isoformat()
+        params["as_of"] = as_of
     else:
         conditions.append("valid_to IS NULL")
 
@@ -150,8 +150,8 @@ async def recall(
     if time_range:
         conditions.append("created_at >= CAST(:time_start AS timestamptz)")
         conditions.append("created_at <= CAST(:time_end AS timestamptz)")
-        params["time_start"] = time_range[0].isoformat()
-        params["time_end"] = time_range[1].isoformat()
+        params["time_start"] = time_range[0]
+        params["time_end"] = time_range[1]
 
     # Metadata JSONB containment filter
     if filters:

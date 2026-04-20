@@ -215,8 +215,8 @@ async def store(
             "embedding": _format_vector(embedding),
             "embedding_model": embedding_model,
             "importance_score": importance_score,
-            "now": now.isoformat(),
-            "ttl_expires_at": ttl_expires_at.isoformat() if ttl_expires_at else None,
+            "now": now,
+            "ttl_expires_at": ttl_expires_at,
         },
     )
 
@@ -249,7 +249,7 @@ async def store(
                     "rel_type": rel.relationship_type,
                     "weight": rel.weight,
                     "metadata": _json_dumps(rel.metadata),
-                    "now": now.isoformat(),
+                    "now": now,
                 },
             )
 

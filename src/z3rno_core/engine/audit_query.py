@@ -134,8 +134,8 @@ async def audit(
     if time_range:
         conditions.append("created_at >= CAST(:time_start AS timestamptz)")
         conditions.append("created_at <= CAST(:time_end AS timestamptz)")
-        params["time_start"] = time_range[0].isoformat()
-        params["time_end"] = time_range[1].isoformat()
+        params["time_start"] = time_range[0]
+        params["time_end"] = time_range[1]
 
     if use_keyset:
         # --- Keyset pagination path ---
@@ -256,8 +256,8 @@ async def get_agent_activity_summary(
     if time_range:
         conditions.append("created_at >= CAST(:time_start AS timestamptz)")
         conditions.append("created_at <= CAST(:time_end AS timestamptz)")
-        params["time_start"] = time_range[0].isoformat()
-        params["time_end"] = time_range[1].isoformat()
+        params["time_start"] = time_range[0]
+        params["time_end"] = time_range[1]
 
     where_clause = " AND ".join(conditions)
     result = await conn.execute(

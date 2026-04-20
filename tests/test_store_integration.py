@@ -11,7 +11,7 @@ Usage:
 from __future__ import annotations
 
 import os
-from collections.abc import AsyncGenerator, Generator
+from collections.abc import Generator
 from typing import Any
 from uuid import UUID, uuid4
 
@@ -47,12 +47,12 @@ def sync_engine() -> Generator[Engine, None, None]:
 
 
 @pytest.fixture(scope="module")
-async def async_engine() -> AsyncGenerator[AsyncEngine, None]:
-    """Async engine for store() tests."""
+def async_engine() -> Generator[AsyncEngine, None, None]:
+    """Async engine for store() tests (sync fixture to avoid event-loop scope issues)."""
     assert ASYNC_DATABASE_URL is not None
-    eng = create_async_engine(ASYNC_DATABASE_URL)
+    eng = create_async_engine(ASYNC_DATABASE_URL, pool_size=1, max_overflow=0)
     yield eng
-    await eng.dispose()
+    eng.sync_engine.dispose()
 
 
 @pytest.fixture(scope="module")
