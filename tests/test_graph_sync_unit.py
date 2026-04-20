@@ -10,13 +10,68 @@ from __future__ import annotations
 from unittest.mock import MagicMock
 from uuid import uuid4
 
+import pytest
+
 from z3rno_core.graph.sync import (
     GRAPH_NAME,
     _age_preamble,
+    _validate_uuid_for_cypher,
     delete_memory_from_graph,
     sync_memory_to_graph,
     sync_relationship_to_graph,
 )
+
+# ---------------------------------------------------------------------------
+# _validate_uuid_for_cypher
+# ---------------------------------------------------------------------------
+
+
+class TestValidateUuidForCypher:
+    """Test UUID validation for Cypher interpolation."""
+
+    def test_valid_uuid_accepted(self) -> None:
+        """Standard UUID passes validation."""
+        uid = uuid4()
+        result = _validate_uuid_for_cypher(uid)
+        assert result == str(uid)
+
+    def test_returns_string(self) -> None:
+        uid = uuid4()
+        assert isinstance(_validate_uuid_for_cypher(uid), str)
+
+    def test_invalid_chars_raise_value_error(self) -> None:
+        """UUID with invalid characters raises ValueError."""
+
+        class FakeUUID:
+            """Fake UUID that stringifies to a value with invalid chars."""
+
+            def __str__(self) -> str:
+                return "12345678-abcd-1234-abcd-12345678GGGG"
+
+        fake = FakeUUID()
+        with pytest.raises(ValueError, match="Invalid UUID for Cypher"):
+            _validate_uuid_for_cypher(fake)  # type: ignore[arg-type]
+
+    def test_uppercase_hex_raises_value_error(self) -> None:
+        """Uppercase hex chars are rejected (only lowercase allowed)."""
+
+        class FakeUUID:
+            def __str__(self) -> str:
+                return "12345678-ABCD-1234-abcd-123456789abc"
+
+        with pytest.raises(ValueError, match="Invalid UUID for Cypher"):
+            _validate_uuid_for_cypher(FakeUUID())  # type: ignore[arg-type]
+
+    def test_injection_attempt_raises_value_error(self) -> None:
+        """SQL/Cypher injection attempt is caught."""
+
+        class FakeUUID:
+            def __str__(self) -> str:
+                return "'; DROP TABLE memories; --"
+
+        with pytest.raises(ValueError, match="Invalid UUID for Cypher"):
+            _validate_uuid_for_cypher(FakeUUID())  # type: ignore[arg-type]
+
 
 # ---------------------------------------------------------------------------
 # _age_preamble

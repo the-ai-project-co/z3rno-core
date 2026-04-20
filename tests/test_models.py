@@ -8,7 +8,9 @@ SQL exercise lives in the integration test suite (Week 2+).
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from typing import cast
+from uuid import UUID
 
 from sqlalchemy import Table, UniqueConstraint, inspect
 from sqlalchemy.orm import Mapper
@@ -330,3 +332,123 @@ def test_audit_log_has_composite_indexes() -> None:
         "ix_audit_log_org_memory",
     }
     assert expected.issubset(index_names), f"missing indexes: {expected - index_names}"
+
+
+# ---------------------------------------------------------------------------
+# __repr__ coverage
+# ---------------------------------------------------------------------------
+
+_FAKE_UUID = UUID("00000000-0000-0000-0000-000000000001")
+_FAKE_UUID_2 = UUID("00000000-0000-0000-0000-000000000002")
+
+
+def test_agent_repr() -> None:
+    agent = Agent(id=_FAKE_UUID, org_id=_FAKE_UUID_2, name="test-agent")
+    result = repr(agent)
+    assert result == f"<Agent id={_FAKE_UUID} org_id={_FAKE_UUID_2} name='test-agent'>"
+
+
+def test_api_key_repr_active() -> None:
+    key = ApiKey(
+        id=_FAKE_UUID,
+        org_id=_FAKE_UUID_2,
+        name="my-key",
+        prefix="z3rno_sk_live_",
+        key_hash=b"fakehash",
+        revoked_at=None,
+    )
+    result = repr(key)
+    assert "status=active" in result
+    assert f"id={_FAKE_UUID}" in result
+    assert "name='my-key'" in result
+
+
+def test_api_key_repr_revoked() -> None:
+    key = ApiKey(
+        id=_FAKE_UUID,
+        org_id=_FAKE_UUID_2,
+        name="revoked-key",
+        prefix="z3rno_sk_live_",
+        key_hash=b"fakehash",
+        revoked_at=datetime(2025, 1, 1, tzinfo=UTC),
+    )
+    result = repr(key)
+    assert "status=revoked" in result
+
+
+def test_audit_log_repr() -> None:
+    log = AuditLog(
+        id=42,
+        org_id=_FAKE_UUID,
+        operation=AuditOperation.STORE,
+        memory_id=_FAKE_UUID_2,
+        row_hash=b"hash",
+    )
+    result = repr(log)
+    assert "<AuditLog" in result
+    assert "id=42" in result
+    assert "op=store" in result
+    assert f"memory_id={_FAKE_UUID_2}" in result
+
+
+def test_lifecycle_policy_repr() -> None:
+    policy = LifecyclePolicy(
+        org_id=_FAKE_UUID,
+        memory_type=MemoryType.EPISODIC,
+        max_count=100,
+        decay_rate=0.01,
+    )
+    result = repr(policy)
+    assert "<LifecyclePolicy" in result
+    assert "type=episodic" in result
+    assert "max_count=100" in result
+    assert "decay_rate=0.01" in result
+
+
+def test_memory_repr_active() -> None:
+    mem = Memory(
+        id=_FAKE_UUID,
+        org_id=_FAKE_UUID_2,
+        agent_id=_FAKE_UUID_2,
+        memory_type=MemoryType.SEMANTIC,
+        content="test",
+        deleted_at=None,
+    )
+    result = repr(mem)
+    assert "<Memory" in result
+    assert "type=semantic" in result
+    assert f"agent={_FAKE_UUID_2}" in result
+    assert "[DELETED]" not in result
+
+
+def test_memory_repr_deleted() -> None:
+    mem = Memory(
+        id=_FAKE_UUID,
+        org_id=_FAKE_UUID_2,
+        agent_id=_FAKE_UUID_2,
+        memory_type=MemoryType.WORKING,
+        content="test",
+        deleted_at=datetime(2025, 6, 1, tzinfo=UTC),
+    )
+    result = repr(mem)
+    assert "[DELETED]" in result
+
+
+def test_memory_relationship_repr() -> None:
+    rel = MemoryRelationship(
+        org_id=_FAKE_UUID,
+        source_memory_id=_FAKE_UUID,
+        target_memory_id=_FAKE_UUID_2,
+        relationship_type=RelationshipType.SUPPORTS,
+    )
+    result = repr(rel)
+    assert "<MemoryRelationship" in result
+    assert f"{_FAKE_UUID}" in result
+    assert "-[supports]->" in result
+    assert f"{_FAKE_UUID_2}" in result
+
+
+def test_tenant_repr() -> None:
+    tenant = Tenant(org_id=_FAKE_UUID, name="Acme Corp", plan_tier=PlanTier.PRO)
+    result = repr(tenant)
+    assert result == f"<Tenant org_id={_FAKE_UUID} name='Acme Corp' plan=pro>"

@@ -195,6 +195,95 @@ class TestAuditPagination:
 
 
 # ---------------------------------------------------------------------------
+# audit() — keyset pagination
+# ---------------------------------------------------------------------------
+
+
+class TestAuditKeysetPagination:
+    """Test audit query keyset pagination logic."""
+
+    async def test_basic_keyset_pagination(self) -> None:
+        """Keyset pagination returns entries with next_cursor."""
+        org_id = uuid4()
+        row1 = _make_audit_row(org_id=org_id, entry_id=99)
+        row2 = _make_audit_row(org_id=org_id, entry_id=98)
+
+        conn = AsyncMock()
+        select_result = MagicMock()
+        select_result.fetchall.return_value = [row1, row2]
+        conn.execute.return_value = select_result
+
+        page = await audit(conn, org_id=org_id, cursor=100, limit=50)
+
+        assert isinstance(page, AuditPage)
+        assert len(page.entries) == 2
+        assert page.next_cursor == 98
+        assert page.page == 0
+        assert page.page_size == 50
+
+    async def test_has_next_true_when_more_rows(self) -> None:
+        """has_next is True when query returns limit+1 rows."""
+        org_id = uuid4()
+        # With limit=2, the query fetches 3 rows; if 3 come back, has_next=True
+        rows = [_make_audit_row(org_id=org_id, entry_id=i) for i in range(10, 7, -1)]
+
+        conn = AsyncMock()
+        select_result = MagicMock()
+        select_result.fetchall.return_value = rows  # 3 rows for limit=2
+        conn.execute.return_value = select_result
+
+        page = await audit(conn, org_id=org_id, cursor=100, limit=2)
+
+        assert page.has_next is True
+        assert len(page.entries) == 2
+        assert page.next_cursor == 9
+
+    async def test_has_next_false_on_last_page(self) -> None:
+        """has_next is False when fewer than limit+1 rows are returned."""
+        org_id = uuid4()
+        rows = [_make_audit_row(org_id=org_id, entry_id=i) for i in range(5, 3, -1)]
+
+        conn = AsyncMock()
+        select_result = MagicMock()
+        select_result.fetchall.return_value = rows  # 2 rows for limit=5
+        conn.execute.return_value = select_result
+
+        page = await audit(conn, org_id=org_id, cursor=100, limit=5)
+
+        assert page.has_next is False
+        assert len(page.entries) == 2
+
+    async def test_empty_results_keyset(self) -> None:
+        """Returns empty page with next_cursor=None when no entries match."""
+        org_id = uuid4()
+
+        conn = AsyncMock()
+        select_result = MagicMock()
+        select_result.fetchall.return_value = []
+        conn.execute.return_value = select_result
+
+        page = await audit(conn, org_id=org_id, cursor=100, limit=10)
+
+        assert page.entries == []
+        assert page.has_next is False
+        assert page.next_cursor is None
+
+    async def test_total_is_negative_one(self) -> None:
+        """total is -1 for keyset pagination (not computed)."""
+        org_id = uuid4()
+        row = _make_audit_row(org_id=org_id, entry_id=50)
+
+        conn = AsyncMock()
+        select_result = MagicMock()
+        select_result.fetchall.return_value = [row]
+        conn.execute.return_value = select_result
+
+        page = await audit(conn, org_id=org_id, cursor=100, limit=10)
+
+        assert page.total == -1
+
+
+# ---------------------------------------------------------------------------
 # audit() — filter building
 # ---------------------------------------------------------------------------
 

@@ -521,6 +521,57 @@ class TestRecallEdgeCases:
         # Should still return results via fallback
         assert len(results) == 1
 
+    async def test_invalid_scoring_weights_raises_recall_error(self) -> None:
+        """recall() raises RecallError when scoring weights don't sum to ~1.0."""
+        org_id = uuid4()
+        agent_id = uuid4()
+        conn = _make_mock_conn([])
+
+        with pytest.raises(RecallError, match=r"Scoring weights must sum to ~1\.0"):
+            await recall(
+                conn,
+                org_id=org_id,
+                agent_id=agent_id,
+                similarity_weight=0.5,
+                importance_weight=0.5,
+                recency_weight=0.5,  # Sum = 1.5, not ~1.0
+            )
+
+    async def test_weights_summing_to_one_accepted(self) -> None:
+        """recall() accepts weights that sum to exactly 1.0."""
+        org_id = uuid4()
+        agent_id = uuid4()
+        conn = _make_mock_conn([_make_memory_row()])
+
+        with patch("z3rno_core.engine.recall.create_audit_entry", new_callable=AsyncMock):
+            # Should not raise
+            results = await recall(
+                conn,
+                org_id=org_id,
+                agent_id=agent_id,
+                similarity_weight=0.6,
+                importance_weight=0.25,
+                recency_weight=0.15,
+            )
+        assert isinstance(results, list)
+
+    async def test_weights_within_tolerance_accepted(self) -> None:
+        """recall() accepts weights within 0.01 tolerance of 1.0."""
+        org_id = uuid4()
+        agent_id = uuid4()
+        conn = _make_mock_conn([_make_memory_row()])
+
+        with patch("z3rno_core.engine.recall.create_audit_entry", new_callable=AsyncMock):
+            results = await recall(
+                conn,
+                org_id=org_id,
+                agent_id=agent_id,
+                similarity_weight=0.6,
+                importance_weight=0.25,
+                recency_weight=0.155,  # Sum = 1.005, within tolerance
+            )
+        assert isinstance(results, list)
+
     async def test_null_metadata_becomes_empty_dict(self) -> None:
         """Row with None metadata is converted to empty dict."""
         org_id = uuid4()

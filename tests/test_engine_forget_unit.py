@@ -371,6 +371,72 @@ class TestForgetCascade:
 
         assert result.cascade_count == 0
 
+    async def test_cascade_multi_hop_traversal(self) -> None:
+        """Cascade with depth=2 traverses two hops of relationships."""
+        org_id = uuid4()
+        agent_id = uuid4()
+        mid = uuid4()
+        hop1_id = uuid4()
+        hop2_id = uuid4()
+
+        conn = AsyncMock()
+        # First hop: finds hop1_id related to mid
+        hop1_result = MagicMock()
+        hop1_result.fetchall.return_value = [(hop1_id,)]
+        # Second hop: finds hop2_id related to hop1_id
+        hop2_result = MagicMock()
+        hop2_result.fetchall.return_value = [(hop2_id,)]
+        # Soft delete UPDATE
+        delete_result = MagicMock()
+        delete_result.rowcount = 3
+        conn.execute.side_effect = [hop1_result, hop2_result, delete_result]
+
+        with patch("z3rno_core.engine.forget.create_audit_entry", new_callable=AsyncMock):
+            result = await forget(
+                conn,
+                org_id=org_id,
+                agent_id=agent_id,
+                memory_id=mid,
+                cascade=True,
+                cascade_depth=2,
+            )
+
+        assert result.cascade_count == 2
+        assert hop1_id in result.memory_ids
+        assert hop2_id in result.memory_ids
+
+    async def test_cascade_stops_when_frontier_empty(self) -> None:
+        """Cascade stops early when no new neighbors are found."""
+        org_id = uuid4()
+        agent_id = uuid4()
+        mid = uuid4()
+        hop1_id = uuid4()
+
+        conn = AsyncMock()
+        # First hop: finds hop1_id
+        hop1_result = MagicMock()
+        hop1_result.fetchall.return_value = [(hop1_id,)]
+        # Second hop: no new neighbors (frontier is empty after dedup)
+        hop2_result = MagicMock()
+        hop2_result.fetchall.return_value = []
+        # Soft delete
+        delete_result = MagicMock()
+        delete_result.rowcount = 2
+        conn.execute.side_effect = [hop1_result, hop2_result, delete_result]
+
+        with patch("z3rno_core.engine.forget.create_audit_entry", new_callable=AsyncMock):
+            result = await forget(
+                conn,
+                org_id=org_id,
+                agent_id=agent_id,
+                memory_id=mid,
+                cascade=True,
+                cascade_depth=2,
+            )
+
+        assert result.cascade_count == 1
+        assert hop1_id in result.memory_ids
+
     async def test_cascade_deduplicates_ids(self) -> None:
         """If a related memory is already in the target list, it's deduplicated."""
         org_id = uuid4()

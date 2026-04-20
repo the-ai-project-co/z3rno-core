@@ -539,6 +539,49 @@ class TestEnsureAuditPartitions:
         assert parts[0].isdigit()
         assert parts[1].isdigit()
 
+    async def test_month_overflow_wraps_to_next_year(self) -> None:
+        """When month arithmetic exceeds 12, year increments correctly.
+
+        Covers lines 380-381 (while month > 12 loop) and lines 387-388
+        (next_month > 12 boundary).
+
+        Current month is April 2026, so months_ahead=9 reaches January 2027,
+        which means month=13 triggers the while loop (line 380-381) and
+        December's next_month=13 triggers the if branch (line 387-388).
+        """
+        conn = AsyncMock()
+        # months_ahead=9 means 10 months: April..January = offsets 0..9
+        side_effects = []
+        for _ in range(10):
+            check_missing = MagicMock()
+            check_missing.fetchone.return_value = None
+            create_result = MagicMock()
+            side_effects.extend([check_missing, create_result])
+        conn.execute.side_effect = side_effects
+
+        result = await ensure_audit_partitions(conn, months_ahead=9)
+
+        now = datetime.now(UTC)
+        # The exact count depends on current month but should be 10
+        assert result.created_count == 10
+        names = result.partition_names
+
+        # Verify year-crossing partitions exist
+        # From April 2026 + 9 months = January 2027
+        next_year = now.year + 1 if now.month + 9 > 12 else now.year
+        assert any(f"y{next_year}" in n for n in names)
+
+        # December partition must appear (exercises next_month > 12 branch)
+        assert f"audit_log_y{now.year}m12" in names
+
+        # Verify the SQL for December partition uses next year's January
+        # Find the CREATE call for December partition
+        for _i, call in enumerate(conn.execute.call_args_list):
+            sql_text = str(call[0][0].text) if hasattr(call[0][0], "text") else str(call[0][0])
+            if f"audit_log_y{now.year}m12" in sql_text and "CREATE" in sql_text.upper():
+                assert f"{next_year}-01-01" in sql_text
+                break
+
     async def test_mixed_existing_and_missing(self) -> None:
         """Mix of existing and missing partitions."""
         conn = AsyncMock()
