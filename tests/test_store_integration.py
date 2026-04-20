@@ -19,6 +19,7 @@ import pytest
 from sqlalchemy import Engine, create_engine, text
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 from sqlalchemy.orm import Session
+from sqlalchemy.pool import NullPool
 
 from z3rno_core.engine import NoOpEmbeddingProvider, StoreError, store
 from z3rno_core.engine.store import StoreResult
@@ -48,9 +49,13 @@ def sync_engine() -> Generator[Engine, None, None]:
 
 @pytest.fixture(scope="module")
 def async_engine() -> Generator[AsyncEngine, None, None]:
-    """Async engine for store() tests (sync fixture to avoid event-loop scope issues)."""
+    """Async engine for store() tests.
+
+    Uses NullPool so each connect() creates a fresh connection — avoids
+    event-loop contamination when pytest-asyncio creates a new loop per test.
+    """
     assert ASYNC_DATABASE_URL is not None
-    eng = create_async_engine(ASYNC_DATABASE_URL, pool_size=1, max_overflow=0)
+    eng = create_async_engine(ASYNC_DATABASE_URL, poolclass=NullPool)
     yield eng
     eng.sync_engine.dispose()
 
@@ -64,7 +69,10 @@ def test_org(sync_engine: Engine) -> Generator[UUID, None, None]:
         session.commit()
     yield org_id
     with sync_engine.connect() as conn:
+        # Temporarily disable the audit immutability trigger for cleanup
+        conn.execute(text("ALTER TABLE audit_log DISABLE TRIGGER audit_log_immutable_trigger"))
         conn.execute(text(f"DELETE FROM audit_log WHERE org_id = '{org_id}'"))
+        conn.execute(text("ALTER TABLE audit_log ENABLE TRIGGER audit_log_immutable_trigger"))
         conn.execute(text(f"DELETE FROM memory_relationships WHERE org_id = '{org_id}'"))
         conn.execute(text(f"DELETE FROM memories WHERE org_id = '{org_id}'"))
         conn.execute(text(f"DELETE FROM tenants WHERE org_id = '{org_id}'"))
