@@ -69,10 +69,10 @@ def test_org(sync_engine: Engine) -> Generator[UUID, None, None]:
         session.commit()
     yield org_id
     with sync_engine.connect() as conn:
-        # Temporarily disable the audit immutability trigger for cleanup
-        conn.execute(text("ALTER TABLE audit_log DISABLE TRIGGER audit_log_immutable_trigger"))
+        # Temporarily disable the audit immutability triggers for cleanup
+        conn.execute(text("ALTER TABLE audit_log DISABLE TRIGGER audit_log_no_delete"))
         conn.execute(text(f"DELETE FROM audit_log WHERE org_id = '{org_id}'"))
-        conn.execute(text("ALTER TABLE audit_log ENABLE TRIGGER audit_log_immutable_trigger"))
+        conn.execute(text("ALTER TABLE audit_log ENABLE TRIGGER audit_log_no_delete"))
         conn.execute(text(f"DELETE FROM memory_relationships WHERE org_id = '{org_id}'"))
         conn.execute(text(f"DELETE FROM memories WHERE org_id = '{org_id}'"))
         conn.execute(text(f"DELETE FROM tenants WHERE org_id = '{org_id}'"))
