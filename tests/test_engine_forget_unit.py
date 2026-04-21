@@ -230,10 +230,12 @@ class TestForgetHardDelete:
         mid = uuid4()
         conn = _make_mock_conn(rowcount=1)
         # begin_nested() returns an async context manager (savepoint)
-        conn.begin_nested = MagicMock(return_value=AsyncMock(
-            __aenter__=AsyncMock(),
-            __aexit__=AsyncMock(return_value=False),
-        ))
+        conn.begin_nested = MagicMock(
+            return_value=AsyncMock(
+                __aenter__=AsyncMock(),
+                __aexit__=AsyncMock(return_value=False),
+            )
+        )
 
         with patch("z3rno_core.engine.forget.create_audit_entry", new_callable=AsyncMock):
             await forget(
