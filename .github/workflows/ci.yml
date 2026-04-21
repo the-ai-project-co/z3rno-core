@@ -41,7 +41,7 @@ jobs:
         run: uv run ruff format --check src/ tests/
 
       - name: mypy — type check
-        run: uv run mypy .
+        run: uv run mypy src/ tests/
 
       - name: pytest — unit + integration tests
         run: uv run pytest -v --cov --cov-report=term-missing
