@@ -328,19 +328,24 @@ async def _safe_age_node(
     agent_id: UUID,
     name: str,
 ) -> bool:
-    """Mirror a Memo into the AGE graph. Returns False if AGE is unavailable."""
+    """Mirror a Memo into the AGE graph. Returns False if AGE is unavailable.
+
+    Wrapped in a savepoint so a failure (e.g. AGE extension not loaded
+    on the testcontainer) doesn't abort the surrounding distill transaction.
+    """
     try:
-        await conn.run_sync(
-            lambda sync_conn: sync_memory_to_graph(
-                sync_conn,
-                memory_id=memo_id,
-                org_id=org_id,
-                agent_id=agent_id,
-                memory_type="semantic",
-                content_preview=name,
+        async with conn.begin_nested():
+            await conn.run_sync(
+                lambda sync_conn: sync_memory_to_graph(
+                    sync_conn,
+                    memory_id=memo_id,
+                    org_id=org_id,
+                    agent_id=agent_id,
+                    memory_type="semantic",
+                    content_preview=name,
+                )
             )
-        )
-    except Exception as exc:  # pragma: no cover — exercised only against real AGE
+    except Exception as exc:
         log.warning(
             "distill.graph_writer.age_node_failed",
             memo_id=str(memo_id),
@@ -357,19 +362,24 @@ async def _safe_age_edge(
     predicate: str,
     weight: float,
 ) -> bool:
-    """Create an AGE edge labelled with the predicate. Returns False on failure."""
+    """Create an AGE edge labelled with the predicate. Returns False on failure.
+
+    Wrapped in a savepoint so a failure (e.g. AGE extension not loaded)
+    doesn't abort the surrounding distill transaction.
+    """
     edge_label = _normalize_predicate(predicate)
     try:
-        await conn.run_sync(
-            lambda sync_conn: sync_relationship_to_graph(
-                sync_conn,
-                source_id=src_id,
-                target_id=tgt_id,
-                relationship_type=edge_label,
-                weight=weight,
+        async with conn.begin_nested():
+            await conn.run_sync(
+                lambda sync_conn: sync_relationship_to_graph(
+                    sync_conn,
+                    source_id=src_id,
+                    target_id=tgt_id,
+                    relationship_type=edge_label,
+                    weight=weight,
+                )
             )
-        )
-    except Exception as exc:  # pragma: no cover — exercised only against real AGE
+    except Exception as exc:
         log.warning(
             "distill.graph_writer.age_edge_failed",
             src=str(src_id),
@@ -436,6 +446,8 @@ async def insert_distill_job(
     max_concurrency: int,
 ) -> None:
     """Insert a fresh ``distill_jobs`` row in ``queued`` status."""
+    # asyncpg expects a Python list for ARRAY columns; passing a
+    # Postgres-literal-formatted string works only with psycopg.
     await conn.execute(
         text("""
             INSERT INTO distill_jobs (
@@ -446,7 +458,7 @@ async def insert_distill_job(
                 CAST(:id AS uuid),
                 CAST(:org_id AS uuid),
                 CAST(:agent_id AS uuid),
-                CAST(:memory_ids AS uuid[]),
+                :memory_ids,
                 'queued',
                 :model, :chunk_size, :chunk_overlap, :max_concurrency,
                 now(), now()
@@ -456,7 +468,7 @@ async def insert_distill_job(
             "id": str(job_id),
             "org_id": str(org_id),
             "agent_id": str(agent_id),
-            "memory_ids": "{" + ",".join(str(m) for m in memory_ids) + "}",
+            "memory_ids": [str(m) for m in memory_ids],
             "model": model,
             "chunk_size": chunk_size,
             "chunk_overlap": chunk_overlap,

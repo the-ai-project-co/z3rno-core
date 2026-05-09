@@ -299,7 +299,13 @@ class ForgePipeline:
             )
 
             # ---- distill: optional summary ----
-            if self._options.include_summary and not result.summary:
+            # include_summary=False is a hard skip — even if the LLM
+            # already produced a summary as part of extraction we drop
+            # it so no summary Memo is written downstream.
+            if not self._options.include_summary:
+                if result.summary:
+                    result = result.model_copy(update={"summary": ""})
+            elif not result.summary:
                 try:
                     s = await rolling_summarize(
                         chunks,

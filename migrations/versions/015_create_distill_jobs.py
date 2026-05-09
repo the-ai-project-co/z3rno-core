@@ -128,7 +128,7 @@ def upgrade() -> None:
         ),
         sa.PrimaryKeyConstraint("id"),
         sa.ForeignKeyConstraint(
-            ["org_id"], ["tenants.id"], name="fk_distill_jobs_org", ondelete="CASCADE"
+            ["org_id"], ["tenants.org_id"], name="fk_distill_jobs_org", ondelete="CASCADE"
         ),
     )
 
@@ -178,7 +178,7 @@ def upgrade() -> None:
         ),
         sa.PrimaryKeyConstraint("id"),
         sa.ForeignKeyConstraint(
-            ["org_id"], ["tenants.id"], name="fk_entity_provenance_org", ondelete="CASCADE"
+            ["org_id"], ["tenants.org_id"], name="fk_entity_provenance_org", ondelete="CASCADE"
         ),
         sa.ForeignKeyConstraint(
             ["distill_job_id"],
