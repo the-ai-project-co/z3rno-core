@@ -54,6 +54,11 @@ dependencies = [
   # LLM / embedding proxy (deferred to z3rno-server but the engine
   # has a thin abstraction over the LiteLLM client interface)
   "litellm>=1.55.0",
+  # Phase A — Forge pipeline: structured LLM output + token-aware chunking.
+  # Modules under z3rno_core.distill / z3rno_core.chunking import these,
+  # but they are dormant unless DISTILL_ENABLED=true at the server tier.
+  "instructor>=1.6.0",
+  "tiktoken>=0.7.0",
   # Resilience
   "tenacity>=9.0.0",
   # Logging
@@ -238,6 +243,14 @@ ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
 module = ["litellm", "litellm.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["instructor", "instructor.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["tiktoken", "tiktoken.*"]
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
