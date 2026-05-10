@@ -209,8 +209,8 @@ def upgrade() -> None:
     # ------------------------------------------------------------------
     policy_expr = "org_id = current_setting('app.current_org_id')::uuid"
     for table in ("distill_jobs", "entity_provenance"):
-        op.execute(f"ALTER TABLE {table} ENABLE ROW LEVEL SECURITY")
-        op.execute(f"ALTER TABLE {table} FORCE ROW LEVEL SECURITY")
+        op.execute(f"ALTER TABLE public.{table} ENABLE ROW LEVEL SECURITY")
+        op.execute(f"ALTER TABLE public.{table} FORCE ROW LEVEL SECURITY")
         op.execute(f"""
             CREATE POLICY tenant_isolation ON {table}
                 FOR ALL
@@ -238,8 +238,8 @@ def downgrade() -> None:
     # Drop policies + RLS first so the tables are unlocked.
     for table in ("entity_provenance", "distill_jobs"):
         op.execute(f"DROP POLICY IF EXISTS tenant_isolation ON {table}")
-        op.execute(f"ALTER TABLE IF EXISTS {table} DISABLE ROW LEVEL SECURITY")
-        op.execute(f"ALTER TABLE IF EXISTS {table} NO FORCE ROW LEVEL SECURITY")
+        op.execute(f"ALTER TABLE IF EXISTS public.{table} DISABLE ROW LEVEL SECURITY")
+        op.execute(f"ALTER TABLE IF EXISTS public.{table} NO FORCE ROW LEVEL SECURITY")
 
     # Drop indexes then tables (CASCADE cleans up FKs).
     op.drop_index("ix_entity_provenance_org_job", table_name="entity_provenance")

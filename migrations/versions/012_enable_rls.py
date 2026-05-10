@@ -54,9 +54,9 @@ def upgrade() -> None:
 
     # --- Enable RLS + create policies ---
     for table in RLS_TABLES:
-        op.execute(f"ALTER TABLE {table} ENABLE ROW LEVEL SECURITY")
+        op.execute(f"ALTER TABLE public.{table} ENABLE ROW LEVEL SECURITY")
         # Force RLS even for table owners (defense in depth)
-        op.execute(f"ALTER TABLE {table} FORCE ROW LEVEL SECURITY")
+        op.execute(f"ALTER TABLE public.{table} FORCE ROW LEVEL SECURITY")
         # Single policy: FOR ALL covers SELECT, INSERT, UPDATE, DELETE
         op.execute(f"""
             CREATE POLICY tenant_isolation ON {table}
@@ -88,8 +88,8 @@ def upgrade() -> None:
 def downgrade() -> None:
     for table in reversed(RLS_TABLES):
         op.execute(f"DROP POLICY IF EXISTS tenant_isolation ON {table}")
-        op.execute(f"ALTER TABLE {table} DISABLE ROW LEVEL SECURITY")
-        op.execute(f"ALTER TABLE {table} NO FORCE ROW LEVEL SECURITY")
+        op.execute(f"ALTER TABLE public.{table} DISABLE ROW LEVEL SECURITY")
+        op.execute(f"ALTER TABLE public.{table} NO FORCE ROW LEVEL SECURITY")
         op.execute(f"REVOKE SELECT, INSERT, UPDATE, DELETE ON {table} FROM z3rno_app")
     op.execute("REVOKE SELECT ON tenants FROM z3rno_app")
 

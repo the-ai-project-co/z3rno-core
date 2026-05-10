@@ -81,6 +81,21 @@ repos:
         args: [--dialect=postgres]
 
   # ---------------------------------------------------------------------------
+  # Migration DDL must be schema-qualified (Apache AGE puts ag_catalog first
+  # on search_path; unqualified CREATE TABLE / INDEX / ALTER TABLE lands in
+  # the wrong schema). Skipped silently in repos that don't have a
+  # migrations/ directory.
+  # ---------------------------------------------------------------------------
+  - repo: local
+    hooks:
+      - id: migration-schema-qualification
+        name: Migrations must schema-qualify all DDL
+        entry: bash -c 'if [ -f scripts/check_migration_schema_qualification.py ]; then python3 scripts/check_migration_schema_qualification.py; fi' --
+        language: system
+        files: ^migrations/versions/.*\.py$
+        pass_filenames: false
+
+  # ---------------------------------------------------------------------------
   # commit message format (conventional commits, soft enforcement)
   # ---------------------------------------------------------------------------
   - repo: https://github.com/compilerla/conventional-pre-commit

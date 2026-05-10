@@ -22,9 +22,9 @@ def upgrade() -> None:
     # Create the parent partitioned table via raw SQL because SQLAlchemy/Alembic
     # doesn't natively support PARTITION BY.
     op.execute("""
-        CREATE TABLE audit_log (
+        CREATE TABLE public.audit_log (
             id          BIGSERIAL       NOT NULL,
-            org_id      UUID            NOT NULL REFERENCES tenants(org_id) ON DELETE CASCADE,
+            org_id      UUID            NOT NULL REFERENCES public.tenants(org_id) ON DELETE CASCADE,
             agent_id    UUID,
             user_id     UUID,
             operation   audit_operation_enum NOT NULL,
@@ -45,24 +45,24 @@ def upgrade() -> None:
 
     # Create initial partitions: current month + 3 months ahead
     op.execute("""
-        CREATE TABLE audit_log_y2026m04 PARTITION OF audit_log
+        CREATE TABLE public.audit_log_y2026m04 PARTITION OF public.audit_log
             FOR VALUES FROM ('2026-04-01') TO ('2026-05-01')
     """)
     op.execute("""
-        CREATE TABLE audit_log_y2026m05 PARTITION OF audit_log
+        CREATE TABLE public.audit_log_y2026m05 PARTITION OF public.audit_log
             FOR VALUES FROM ('2026-05-01') TO ('2026-06-01')
     """)
     op.execute("""
-        CREATE TABLE audit_log_y2026m06 PARTITION OF audit_log
+        CREATE TABLE public.audit_log_y2026m06 PARTITION OF public.audit_log
             FOR VALUES FROM ('2026-06-01') TO ('2026-07-01')
     """)
     op.execute("""
-        CREATE TABLE audit_log_y2026m07 PARTITION OF audit_log
+        CREATE TABLE public.audit_log_y2026m07 PARTITION OF public.audit_log
             FOR VALUES FROM ('2026-07-01') TO ('2026-08-01')
     """)
 
     # Default partition for anything outside the defined ranges
-    op.execute("CREATE TABLE audit_log_default PARTITION OF audit_log DEFAULT")
+    op.execute("CREATE TABLE public.audit_log_default PARTITION OF public.audit_log DEFAULT")
 
     # Indexes
     op.create_index("ix_audit_log_org_id", "audit_log", ["org_id"])

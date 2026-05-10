@@ -98,7 +98,7 @@ def upgrade() -> None:
     )
 
     # Add the vector column via raw SQL (pgvector type not natively supported by Alembic)
-    op.execute(f"ALTER TABLE memories ADD COLUMN embedding vector({EMBEDDING_DIM})")
+    op.execute(f"ALTER TABLE public.memories ADD COLUMN embedding vector({EMBEDDING_DIM})")
 
     # Single-column indexes
     op.create_index("ix_memories_org_id", "memories", ["org_id"])
