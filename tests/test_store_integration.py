@@ -21,7 +21,12 @@ from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 from sqlalchemy.orm import Session
 from sqlalchemy.pool import NullPool
 
-from z3rno_core.engine import NoOpEmbeddingProvider, StoreError, store
+from z3rno_core.engine import (
+    NoOpEmbeddingProvider,
+    StoreError,
+    flush_audit_chain,
+    store,
+)
 from z3rno_core.engine.store import StoreResult
 from z3rno_core.models import MemoryType, Tenant
 from z3rno_core.models.enums import PlanTier
@@ -176,6 +181,14 @@ async def test_store_creates_audit_entry(
         content="Audit test memory.",
         memory_type=MemoryType.EPISODIC,
     )
+
+    # Audit writes are async-drained in v0.7.0 — flush before asserting.
+    async with async_engine.begin() as conn:
+        await conn.execute(
+            text("SELECT set_config('app.current_org_id', :o, false)"),
+            {"o": str(test_org)},
+        )
+        await flush_audit_chain(conn, test_org)
 
     with sync_engine.connect() as conn:
         row = conn.execute(

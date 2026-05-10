@@ -36,7 +36,7 @@ from sqlalchemy.pool import NullPool
 from z3rno_core.distill.extract import _LLMExtraction
 from z3rno_core.distill.llm_gateway import LLMGatewayError, StubLLMGateway
 from z3rno_core.distill.schemas import Entity, Relationship
-from z3rno_core.engine import NoOpEmbeddingProvider, store
+from z3rno_core.engine import NoOpEmbeddingProvider, flush_audit_chain, store
 from z3rno_core.forge import ForgeOptions, ForgePipeline
 from z3rno_core.models import MemoryType, Tenant
 from z3rno_core.models.enums import PlanTier
@@ -203,7 +203,14 @@ async def test_happy_path_writes_memos_provenance_and_audit(
     )
     assert new_memos == 2
 
-    # Audit log got a 'store' entry per new Memo (transitively via store())
+    # Audit log got a 'store' entry per new Memo (transitively via store()).
+    # Audit writes are async-drained in v0.7.0 — flush before asserting.
+    async with async_engine.begin() as conn:
+        await conn.execute(
+            text("SELECT set_config('app.current_org_id', :o, false)"),
+            {"o": str(test_org)},
+        )
+        await flush_audit_chain(conn, test_org)
     audit_rows = _count(
         sync_engine,
         """

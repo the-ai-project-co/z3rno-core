@@ -152,8 +152,6 @@ class TestUpdateMemoryExecution:
         agent_result = MagicMock()
         agent_result.fetchone.return_value = (aid,)
 
-        audit_hash_result = MagicMock()
-        audit_hash_result.fetchone.return_value = None
 
         audit_insert_result = MagicMock()
 
@@ -182,7 +180,6 @@ class TestUpdateMemoryExecution:
             side_effect=[
                 update_result,
                 agent_result,
-                audit_hash_result,
                 audit_insert_result,
                 get_result,
             ]
@@ -191,7 +188,7 @@ class TestUpdateMemoryExecution:
         result = await update_memory(conn, org_id=oid, memory_id=mid, content="new content")
 
         assert result.id == mid
-        assert conn.execute.call_count == 5
+        assert conn.execute.call_count == 4
 
     @pytest.mark.asyncio
     async def test_metadata_update(self) -> None:
@@ -205,8 +202,6 @@ class TestUpdateMemoryExecution:
         update_result.fetchone.return_value = (mid,)
 
         # agent_id provided, so no agent lookup needed
-        audit_hash_result = MagicMock()
-        audit_hash_result.fetchone.return_value = None
 
         audit_insert_result = MagicMock()
 
@@ -232,7 +227,7 @@ class TestUpdateMemoryExecution:
         )
 
         conn.execute = AsyncMock(
-            side_effect=[update_result, audit_hash_result, audit_insert_result, get_result]
+            side_effect=[update_result, audit_insert_result, get_result]
         )
 
         result = await update_memory(
@@ -256,8 +251,6 @@ class TestUpdateMemoryExecution:
         update_result = MagicMock()
         update_result.fetchone.return_value = (mid,)
 
-        audit_hash_result = MagicMock()
-        audit_hash_result.fetchone.return_value = None
 
         audit_insert_result = MagicMock()
 
@@ -283,7 +276,7 @@ class TestUpdateMemoryExecution:
         )
 
         conn.execute = AsyncMock(
-            side_effect=[update_result, audit_hash_result, audit_insert_result, get_result]
+            side_effect=[update_result, audit_insert_result, get_result]
         )
 
         result = await update_memory(
@@ -311,8 +304,6 @@ class TestUpdateMemoryExecution:
         agent_result = MagicMock()
         agent_result.fetchone.return_value = None
 
-        audit_hash_result = MagicMock()
-        audit_hash_result.fetchone.return_value = None
 
         audit_insert_result = MagicMock()
 
@@ -341,7 +332,6 @@ class TestUpdateMemoryExecution:
             side_effect=[
                 update_result,
                 agent_result,
-                audit_hash_result,
                 audit_insert_result,
                 get_result,
             ]
@@ -350,4 +340,4 @@ class TestUpdateMemoryExecution:
         result = await update_memory(conn, org_id=oid, memory_id=mid, content="updated")
 
         assert result.id == mid
-        assert conn.execute.call_count == 5
+        assert conn.execute.call_count == 4

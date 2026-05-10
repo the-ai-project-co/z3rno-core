@@ -7,7 +7,14 @@ database writes atomically within a single transaction.
 
 from __future__ import annotations
 
-from z3rno_core.engine.audit import compute_row_hash, create_audit_entry
+from z3rno_core.engine.audit import (
+    compute_row_hash,
+    create_audit_entry,
+    drain_audit_chain,
+    enqueue_audit_entry,
+    flush_audit_chain,
+    list_orgs_with_pending,
+)
 from z3rno_core.engine.audit_query import (
     ActivitySummary,
     AuditEntry,
@@ -68,6 +75,10 @@ __all__ = [
     "compute_row_hash",
     "create_audit_entry",
     "decay_importance",
+    "drain_audit_chain",
+    "enqueue_audit_entry",
+    "flush_audit_chain",
+    "list_orgs_with_pending",
     "enforce_retention_cap",
     "forget",
     "get_agent_activity_summary",

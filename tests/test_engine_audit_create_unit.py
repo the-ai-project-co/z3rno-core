@@ -1,7 +1,14 @@
 """Unit tests for z3rno_core.engine.audit — async functions (no DB).
 
-Tests get_latest_hash and create_audit_entry using mocked connections.
-The compute_row_hash tests are in test_engine_audit.py.
+Covers:
+- ``get_latest_hash``
+- ``enqueue_audit_entry`` (the v0.7.0 fast path; writes to audit_log_pending,
+  one execute call, no chain lookup, fully parallel-safe)
+- ``create_audit_entry`` (backwards-compat alias for ``enqueue_audit_entry``)
+
+The drainer (``drain_audit_chain`` / ``flush_audit_chain``) needs the real
+audit_log + audit_log_pending tables to exercise meaningfully and is
+covered by the integration suite.
 """
 
 from __future__ import annotations
@@ -9,7 +16,11 @@ from __future__ import annotations
 from unittest.mock import AsyncMock, MagicMock
 from uuid import uuid4
 
-from z3rno_core.engine.audit import create_audit_entry, get_latest_hash
+from z3rno_core.engine.audit import (
+    create_audit_entry,
+    enqueue_audit_entry,
+    get_latest_hash,
+)
 
 # ---------------------------------------------------------------------------
 # get_latest_hash
@@ -60,102 +71,49 @@ class TestGetLatestHash:
 
 
 # ---------------------------------------------------------------------------
-# create_audit_entry
+# enqueue_audit_entry
 # ---------------------------------------------------------------------------
 
 
-class TestCreateAuditEntry:
-    """Test create_audit_entry async function."""
+class TestEnqueueAuditEntry:
+    """Tests for the fast write path that lands a row in audit_log_pending."""
 
-    async def test_inserts_audit_entry(self) -> None:
-        """Creates an audit log entry with correct parameters."""
+    async def test_single_execute_call(self) -> None:
+        """One INSERT into audit_log_pending — no SELECT prev_hash, no chain."""
         org_id = uuid4()
         agent_id = uuid4()
-
         conn = AsyncMock()
-        # First call: get_latest_hash SELECT
-        hash_result = MagicMock()
-        hash_result.fetchone.return_value = None
-        # Second call: INSERT
-        insert_result = MagicMock()
-        conn.execute.side_effect = [hash_result, insert_result]
 
-        await create_audit_entry(
-            conn,
-            org_id=org_id,
-            operation="store",
-            agent_id=agent_id,
+        await enqueue_audit_entry(
+            conn, org_id=org_id, operation="store", agent_id=agent_id
         )
 
-        # Second call should be the INSERT
-        assert conn.execute.call_count == 2
-        insert_call = conn.execute.call_args_list[1]
+        assert conn.execute.call_count == 1
+
+    async def test_inserts_required_fields(self) -> None:
+        """org_id, operation, agent_id round-trip into the parameter dict."""
+        org_id = uuid4()
+        agent_id = uuid4()
+        conn = AsyncMock()
+
+        await enqueue_audit_entry(
+            conn, org_id=org_id, operation="store", agent_id=agent_id
+        )
+
+        insert_call = conn.execute.call_args_list[0]
         params = insert_call[0][1]
         assert params["org_id"] == str(org_id)
         assert params["operation"] == "store"
         assert params["agent_id"] == str(agent_id)
 
-    async def test_chains_from_previous_hash(self) -> None:
-        """Uses previous hash for chain computation."""
+    async def test_optional_fields_default_none(self) -> None:
+        """Unset optional fields stay None in the params dict."""
         org_id = uuid4()
-        prev_hash = b"\xde\xad" * 16
-
         conn = AsyncMock()
-        hash_result = MagicMock()
-        hash_result.fetchone.return_value = (prev_hash,)
-        insert_result = MagicMock()
-        conn.execute.side_effect = [hash_result, insert_result]
 
-        await create_audit_entry(
-            conn,
-            org_id=org_id,
-            operation="recall",
-        )
+        await enqueue_audit_entry(conn, org_id=org_id, operation="store")
 
-        insert_call = conn.execute.call_args_list[1]
-        params = insert_call[0][1]
-        assert params["prev_hash"] == prev_hash
-        assert params["row_hash"] is not None
-        assert isinstance(params["row_hash"], bytes)
-
-    async def test_null_prev_hash_for_first_entry(self) -> None:
-        """First entry has None prev_hash."""
-        org_id = uuid4()
-
-        conn = AsyncMock()
-        hash_result = MagicMock()
-        hash_result.fetchone.return_value = None
-        insert_result = MagicMock()
-        conn.execute.side_effect = [hash_result, insert_result]
-
-        await create_audit_entry(
-            conn,
-            org_id=org_id,
-            operation="store",
-        )
-
-        insert_call = conn.execute.call_args_list[1]
-        params = insert_call[0][1]
-        assert params["prev_hash"] is None
-
-    async def test_optional_fields_none_by_default(self) -> None:
-        """Optional fields default to None."""
-        org_id = uuid4()
-
-        conn = AsyncMock()
-        hash_result = MagicMock()
-        hash_result.fetchone.return_value = None
-        insert_result = MagicMock()
-        conn.execute.side_effect = [hash_result, insert_result]
-
-        await create_audit_entry(
-            conn,
-            org_id=org_id,
-            operation="store",
-        )
-
-        insert_call = conn.execute.call_args_list[1]
-        params = insert_call[0][1]
+        params = conn.execute.call_args_list[0][0][1]
         assert params["agent_id"] is None
         assert params["user_id"] is None
         assert params["memory_id"] is None
@@ -166,20 +124,15 @@ class TestCreateAuditEntry:
         assert params["request_id"] is None
 
     async def test_all_optional_fields_populated(self) -> None:
-        """All optional fields are correctly passed."""
+        """Every optional field round-trips when supplied."""
         org_id = uuid4()
         agent_id = uuid4()
         user_id = uuid4()
         memory_id = uuid4()
         api_key_id = uuid4()
-
         conn = AsyncMock()
-        hash_result = MagicMock()
-        hash_result.fetchone.return_value = None
-        insert_result = MagicMock()
-        conn.execute.side_effect = [hash_result, insert_result]
 
-        await create_audit_entry(
+        await enqueue_audit_entry(
             conn,
             org_id=org_id,
             operation="forget",
@@ -194,8 +147,7 @@ class TestCreateAuditEntry:
             request_id="req-123",
         )
 
-        insert_call = conn.execute.call_args_list[1]
-        params = insert_call[0][1]
+        params = conn.execute.call_args_list[0][0][1]
         assert params["agent_id"] == str(agent_id)
         assert params["user_id"] == str(user_id)
         assert params["memory_id"] == str(memory_id)
@@ -206,21 +158,31 @@ class TestCreateAuditEntry:
         assert params["request_id"] == "req-123"
 
     async def test_empty_details_serialized(self) -> None:
-        """Empty/None details is serialized as empty JSON object."""
+        """None / empty details serializes as the empty JSON object."""
         org_id = uuid4()
-
         conn = AsyncMock()
-        hash_result = MagicMock()
-        hash_result.fetchone.return_value = None
-        insert_result = MagicMock()
-        conn.execute.side_effect = [hash_result, insert_result]
 
-        await create_audit_entry(
-            conn,
-            org_id=org_id,
-            operation="store",
-        )
+        await enqueue_audit_entry(conn, org_id=org_id, operation="store")
 
-        insert_call = conn.execute.call_args_list[1]
-        params = insert_call[0][1]
+        params = conn.execute.call_args_list[0][0][1]
         assert params["details"] == "{}"
+
+
+# ---------------------------------------------------------------------------
+# Backwards compatibility — create_audit_entry is an alias for enqueue
+# ---------------------------------------------------------------------------
+
+
+class TestCreateAuditEntryAlias:
+    """create_audit_entry remains importable; redirects to enqueue."""
+
+    async def test_alias_points_to_enqueue(self) -> None:
+        assert create_audit_entry is enqueue_audit_entry
+
+    async def test_alias_call_does_one_execute(self) -> None:
+        org_id = uuid4()
+        conn = AsyncMock()
+
+        await create_audit_entry(conn, org_id=org_id, operation="store")
+
+        assert conn.execute.call_count == 1

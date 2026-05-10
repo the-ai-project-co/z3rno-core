@@ -252,17 +252,28 @@ async def recall(
     results.sort(key=lambda r: r.relevance_score, reverse=True)
 
     # --- Update recall_count and last_recalled_at ---
+    # Lock in deterministic id order so concurrent recalls touching
+    # overlapping memory sets queue on a lock instead of deadlocking.
+    # The inner SELECT FOR NO KEY UPDATE acquires row locks in id-order;
+    # the outer UPDATE then writes the counter without acquiring a stronger
+    # lock. SCD-Type-2 trigger explicitly skips recall_count updates so this
+    # doesn't versioned-fork the row.
     if results:
-        memory_ids = [str(r.memory_id) for r in results]
-        id_list = ",".join(f"'{mid}'" for mid in memory_ids)
+        memory_ids = sorted(str(r.memory_id) for r in results)
         await conn.execute(
-            text(f"""
+            text("""
                 UPDATE memories
                 SET recall_count = recall_count + 1,
                     last_recalled_at = now(),
                     updated_at = now()
-                WHERE id IN ({id_list})
-            """)
+                WHERE id IN (
+                    SELECT id FROM memories
+                    WHERE id = ANY(CAST(:ids AS uuid[]))
+                    ORDER BY id
+                    FOR NO KEY UPDATE
+                )
+            """),
+            {"ids": memory_ids},
         )
 
     # --- Audit log ---
