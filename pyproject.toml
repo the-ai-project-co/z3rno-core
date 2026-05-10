@@ -7,7 +7,7 @@ build-backend = "hatchling.build"
 # =============================================================================
 [project]
 name = "z3rno-core"
-version = "0.3.1"
+version = "0.4.0"
 description = "Core memory engine for Z3rno: PostgreSQL schema, SQLAlchemy models, Alembic migrations, and the store/recall/forget/audit library functions."
 readme = "README.md"
 license = { text = "Apache-2.0" }
@@ -59,6 +59,12 @@ dependencies = [
   # but they are dormant unless DISTILL_ENABLED=true at the server tier.
   "instructor>=1.6.0",
   "tiktoken>=0.7.0",
+  # Phase B.1 — Ingestion: document loaders + URL fetching. Modules under
+  # z3rno_core.loaders import these; dormant unless INGEST_ENABLED=true.
+  "pypdf>=5.0.0",
+  "python-docx>=1.1.0",
+  "beautifulsoup4>=4.12.0",
+  "httpx>=0.27.0",
   # Resilience
   "tenacity>=9.0.0",
   # Logging
@@ -251,6 +257,10 @@ ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
 module = ["tiktoken", "tiktoken.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["pypdf", "pypdf.*", "docx", "docx.*", "bs4", "bs4.*"]
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]

@@ -27,10 +27,14 @@ make seed                        # Load dev seed data
 - `src/z3rno_core/distill/` — **Phase A — Forge distillation:** LLM Gateway (LiteLLM + Instructor), entity/relationship extraction, summarization, graph writer (writes Memos + provenance + AGE edges)
 - `src/z3rno_core/chunking/` — **Phase A:** token-aware (tiktoken) and paragraph-boundary chunkers; pure functions
 - `src/z3rno_core/forge/` — **Phase A:** ForgePipeline orchestrator (parse → distill → retain) with idempotency, bounded concurrency, distill_jobs lifecycle
-- `migrations/versions/` — 15 Alembic migrations (001–015; **015** = distill_jobs + entity_provenance, RLS, indexes, downgradable)
+- `src/z3rno_core/loaders/` — **Phase B.1 — Ingestion loaders:** Loader ABC + LoaderRegistry; PDF (pypdf), DOCX (python-docx), CSV (stdlib + dialect sniff), Markdown, plain text, code (24 languages), URL (httpx + BeautifulSoup HTML extraction). Magic-byte sniffing routes binary formats reliably.
+- `src/z3rno_core/storage/` — **Phase B.1:** StorageBackend ABC + LocalStorageBackend (`<root>/<org_id>/<yyyy>/<mm>/<uuid>.<ext>`, atomic writes, path-traversal blocked). S3 in Phase B.2.
+- `src/z3rno_core/ingest/` — **Phase B.1:** IngestPipeline orchestrator (parse → dedupe → load → store → optional auto-distill); `ingest_jobs` state helpers; one Memo per ingest in B.1.
+- `migrations/versions/` — 16 Alembic migrations (001–016; **016** = datasets + ingest_jobs + dataset_id columns, RLS, indexes, downgradable)
 - `seeds/dev_seed.py` — Dev seed data (2 tenants, 500 memories, 1000 audit entries)
 - `docs/` — SCHEMA.md, MULTI_TENANCY.md, ADR-001
 - `../z3rno-process-docs/improvements/PHASE-A-IMPLEMENTATION.md` — full operator reference for the Forge pipeline
+- `../z3rno-process-docs/improvements/PHASE-B1-IMPLEMENTATION.md` — full operator reference for the Ingestion surface
 
 ## Phase A — Forge (opt-in)
 
@@ -54,7 +58,33 @@ The Forge pipeline is dormant until the operator sets `DISTILL_ENABLED=true` in 
 
 **Provenance.** Every Memo the Forge writes carries `prompt_hash` (SHA-256 of `(system, user)` prompts), `model`, `chunk_index`, `char_start/end`. Phase F flips `DISTILL_PROVENANCE_REQUIRED=true` to enforce.
 
-**AGE writes are best-effort.** Apache AGE not being loaded (testcontainer, etc.) logs a warning and skips graph mirroring; the relational state stays consistent.
+**AGE writes are best-effort.** Apache AGE not being loaded (testcontainer, etc.) logs a warning and skips graph mirroring; the relational state stays consistent. AGE writes are also wrapped in `conn.begin_nested()` savepoints (since v0.3.1) so a failure doesn't poison the surrounding transaction.
+
+## Phase B.1 — Ingestion (opt-in)
+
+The ingestion surface is dormant until the operator sets `INGEST_ENABLED=true` in the server tier. With the flag off:
+- `/v1/ingest`, `/v1/ingest/file`, and `/v1/datasets` routes are not registered (OpenAPI byte-identical to pre-Phase-B-1).
+- The `z3rno.ingest_run` Celery task self-rejects with `{status: "rejected", reason: "ingest_disabled"}` and zero DB I/O.
+- `datasets`, `ingest_jobs` tables (Migration 016) and `dataset_id` columns sit empty/NULL.
+
+**Public API (z3rno_core.loaders):**
+- `Loader` ABC + `LoaderResult` schema; `LoaderRegistry` with magic-byte sniffing
+- `PdfLoader`, `DocxLoader`, `CsvLoader`, `MarkdownLoader`, `PlainTextLoader`, `CodeLoader`, `UrlLoader`
+- `fetch_url(...)` — async HTTP fetch with scheme allowlist, timeout, response-size cap; returns `FetchResult`
+- `get_default_registry()` — process-wide singleton with all 7 loaders pre-registered
+
+**Public API (z3rno_core.storage):**
+- `StorageBackend` ABC + `LocalStorageBackend` (Phase B.1) — `store_artifact / read_artifact / delete_artifact`
+
+**Public API (z3rno_core.ingest):**
+- `IngestPipeline(registry=..., storage=..., embedding_provider=..., url_*=...)`
+- `await pipeline.run(engine, *, org_id, agent_id, ingest_input, dataset_id?, options?, post_ingest?, ...)` → `IngestRunSummary`
+- `IngestInput(kind="text|url|file", ...)`, `IngestOptions(auto_distill=, chunk_size=, ...)`
+- State helpers: `insert_ingest_job`, `update_ingest_job`, `find_memory_by_source_uri`
+
+**`engine.store.store()` extended.** Now accepts `dataset_id: UUID | None` so the FK is set during INSERT (not via UPDATE) — sidesteps the SCD-2 trigger's recursion guard. Existing callers don't pass it; default `None` preserves all pre-Phase-B-1 behavior.
+
+**Idempotency.** URL re-ingests dedupe on `(org_id, dataset_id, source_uri)`. Text and file ingests intentionally do not — every call creates a new Memo. Phase D's `refine()` will add content-hash dedupe for files.
 
 ## Key Conventions
 
@@ -79,7 +109,8 @@ The Forge pipeline is dormant until the operator sets `DISTILL_ENABLED=true` in 
 
 ## Testing
 
-- Unit tests: `uv run pytest` (no DB needed, 143 tests)
-- Integration tests: `DATABASE_URL=postgresql+psycopg://... uv run pytest -m integration`
+- Unit tests: `uv run pytest` (no DB needed, ~470 tests)
+- Integration tests: `DATABASE_URL=postgresql+psycopg://... uv run pytest -m integration` (~13 tests run against testcontainer; 7 Phase A + 6 Phase B.1)
+- Total: **579 tests** in z3rno-core as of v0.4.0
 - Coverage threshold: 95% (unit tests with mocked DB connections cover async engine paths)
 - Seeds and lifecycle tests excluded from per-file ignores (S608, PLR2004, etc.)
