@@ -435,7 +435,9 @@ class TestRecallEdgeCases:
         with patch("z3rno_core.engine.recall.create_audit_entry", new_callable=AsyncMock):
             results = await recall(conn, org_id=org_id, agent_id=agent_id)
 
-        assert results == []
+        # RecallResponse iterates + has __len__ as a back-compat shim.
+        assert len(results) == 0
+        assert list(results) == []
 
     async def test_top_k_param_passed(self) -> None:
         """top_k is passed to the SQL query."""
@@ -553,7 +555,8 @@ class TestRecallEdgeCases:
                 importance_weight=0.25,
                 recency_weight=0.15,
             )
-        assert isinstance(results, list)
+        # Phase C: returns RecallResponse, which iterates like a list.
+        assert len(results) == 1
 
     async def test_weights_within_tolerance_accepted(self) -> None:
         """recall() accepts weights within 0.01 tolerance of 1.0."""
@@ -570,7 +573,7 @@ class TestRecallEdgeCases:
                 importance_weight=0.25,
                 recency_weight=0.155,  # Sum = 1.005, within tolerance
             )
-        assert isinstance(results, list)
+        assert len(results) == 1
 
     async def test_null_metadata_becomes_empty_dict(self) -> None:
         """Row with None metadata is converted to empty dict."""

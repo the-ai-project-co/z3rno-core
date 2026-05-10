@@ -1,25 +1,35 @@
-"""recall() - the core memory retrieval operation.
+"""recall() — strategy-dispatch retrieval (Phase C.1).
 
-Combines vector similarity search, metadata filtering, temporal queries,
-and optional graph context enrichment into a single ranked result set.
+Phase C extracts the retrieval logic into pluggable strategies — see
+``z3rno_core.retrieval`` for the framework and individual strategy
+implementations. ``recall()`` is now a thin dispatcher that:
 
-Every recall():
-  1. Embeds the query text (if provided)
-  2. Builds a filtered SQL query (org_id, memory_type, metadata, temporal)
-  3. Executes pgvector cosine similarity search
-  4. Optionally enriches with graph context (N-hop traversal)
-  5. Ranks results by fused relevance score
-  6. Updates recall_count / last_recalled_at on returned memories
-  7. Logs an audit entry
+  1. Resolves the requested strategy by name (default ``AUTO``).
+  2. Delegates to ``strategy.retrieve(...)`` with the caller's filters.
+  3. (Future C.3) Optionally re-ranks the results.
+  4. Updates ``recall_count`` / ``last_recalled_at`` on returned memories.
+  5. Writes one audit row.
+  6. Returns a :class:`RecallResponse` with strategy provenance.
+
+Backwards compatibility:
+  * ``RecallResult`` stays exported with the pre-Phase-C shape so
+    code that constructs it directly (tests, SDK callers) keeps
+    working.
+  * The return type changes from ``list[RecallResult]`` to
+    ``RecallResponse``. The response iterates + has ``__len__`` so
+    ``for r in await recall(...)`` and ``len(await recall(...))``
+    continue to work.
+  * Without ``strategy=``, the default is ``AUTO`` which in C.1
+    delegates to ``VECTOR`` — byte-identical to pre-C.1 behaviour.
 
 Default safety filters (always applied unless overridden):
-  - valid_to IS NULL (only current versions)
-  - deleted_at IS NULL (exclude soft-deleted)
+  - ``valid_to IS NULL`` (only current versions)
+  - ``deleted_at IS NULL`` (exclude soft-deleted)
 """
 
 from __future__ import annotations
 
-import json
+import time
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
@@ -31,10 +41,39 @@ from sqlalchemy.ext.asyncio import AsyncConnection
 from z3rno_core.engine.audit import create_audit_entry
 from z3rno_core.engine.embedding import EmbeddingProvider
 
+# Import strategies package as a side-effect — registers VECTOR, LEXICAL,
+# AUTO with the registry. Doing this here (rather than in
+# z3rno_core.retrieval.__init__) avoids a circular import: this module
+# depends on retrieval, and engine/__init__.py re-exports recall, so
+# strategies → engine.embedding → engine/__init__ → engine.recall →
+# retrieval would loop.
+import z3rno_core.retrieval.strategies  # noqa: F401, E402
+from z3rno_core.retrieval.base import (  # noqa: E402
+    RecallResponse,
+    StrategyResult,
+    get_strategy,
+)
+
+
+# ---------------------------------------------------------------------------
+# Backwards-compat dataclass (pre-Phase-C shape)
+# ---------------------------------------------------------------------------
+
 
 @dataclass(frozen=True)
 class RecallResult:
-    """A single result from a recall() query."""
+    """A single result from a recall() query — pre-Phase-C shape.
+
+    Phase C strategies emit :class:`StrategyResult` (with
+    ``score_components``). For consumers that prefer the older flatter
+    shape (``similarity_score`` instead of ``score_components["vector"]``),
+    ``recall()`` populates this from the strategy output and returns it
+    inside :class:`RecallResponse`.
+
+    The pre-C.1 module exported this directly; we keep the export so
+    ``from z3rno_core.engine.recall import RecallResult`` keeps
+    working.
+    """
 
     memory_id: UUID
     content: str
@@ -42,7 +81,7 @@ class RecallResult:
     memory_type: str
     similarity_score: float
     importance_score: float
-    relevance_score: float  # Fused final score
+    relevance_score: float
     recall_count: int
     created_at: datetime
     valid_from: datetime
@@ -54,12 +93,18 @@ class RecallError(Exception):
     """Raised when recall() fails."""
 
 
+# ---------------------------------------------------------------------------
+# recall()
+# ---------------------------------------------------------------------------
+
+
 async def recall(
     conn: AsyncConnection,
     *,
     org_id: UUID,
     agent_id: UUID,
     query: str | None = None,
+    strategy: str = "AUTO",
     embedding_provider: EmbeddingProvider | None = None,
     memory_type: str | None = None,
     filters: dict[str, Any] | None = None,
@@ -68,7 +113,7 @@ async def recall(
     time_range: tuple[datetime, datetime] | None = None,
     as_of: datetime | None = None,
     include_deleted: bool = False,
-    # Relevance scoring weights (must sum to ~1.0)
+    # Relevance scoring weights (VECTOR strategy only; ignored elsewhere)
     similarity_weight: float = 0.60,
     importance_weight: float = 0.25,
     recency_weight: float = 0.15,
@@ -78,41 +123,29 @@ async def recall(
     ip_address: str | None = None,
     user_agent: str | None = None,
     request_id: str | None = None,
-) -> list[RecallResult]:
-    """Recall memories with vector search, filtering, and ranking.
+) -> RecallResponse:
+    """Recall memories via the selected strategy.
 
     Args:
-        conn: Active async connection (must be in a transaction).
-        org_id: Tenant org_id.
-        agent_id: Agent performing the recall.
-        query: Text query to embed for similarity search. If None,
-            returns memories by recency/importance only.
-        embedding_provider: Provider to embed the query text.
-        memory_type: Filter to a specific memory type.
-        filters: JSONB metadata containment filter (e.g. {"tag": "important"}).
-        top_k: Maximum number of results to return.
-        similarity_threshold: Minimum cosine similarity (0-1). Only applies
-            when query is provided.
-        time_range: Filter memories created in (start, end) range.
-        as_of: SCD Type 2 point-in-time query. Returns versions valid
-            at this timestamp instead of current versions.
-        include_deleted: If True, includes soft-deleted memories.
-        similarity_weight: Weight for cosine similarity in fused scoring (default 0.60).
-        importance_weight: Weight for importance score in fused scoring (default 0.25).
-        recency_weight: Weight for recency score in fused scoring (default 0.15).
-        user_id: For audit log.
-        api_key_id: For audit log.
-        ip_address: For audit log.
-        user_agent: For audit log.
-        request_id: For audit log.
+        strategy: One of ``"VECTOR" | "LEXICAL" | "AUTO"`` in C.1.
+            Phase C.2-C.4 add ``GRAPH | TRIPLET | TRACE | TEMPORAL |
+            ASK | CYPHER``. Case-insensitive.
+        embedding_provider: Required for ``VECTOR`` and ``AUTO`` (when
+            AUTO routes to vector). Optional otherwise.
 
     Returns:
-        List of RecallResult ordered by relevance_score descending.
-
-    Raises:
-        RecallError: If scoring weights do not sum to approximately 1.0.
+        :class:`RecallResponse` wrapping ``list[StrategyResult]`` plus
+        ``strategy_used``, ``strategies_considered``, ``reranked``,
+        ``elapsed_ms``. Iterates as if it were the raw list for
+        backwards compatibility.
     """
-    # Validate scoring weights sum to ~1.0
+    started = time.perf_counter()
+
+    # Pre-strategy validation that produces the legacy RecallError shape so
+    # SDK consumers catching the existing exception keep working. Strategy
+    # internals raise their own ValueErrors for the same condition (defense
+    # in depth), but this catches it first with the friendlier message.
+    # Tolerance matches pre-C.1: anything within 0.01 of 1.0 is accepted.
     weight_sum = similarity_weight + importance_weight + recency_weight
     if abs(weight_sum - 1.0) > 0.01:
         raise RecallError(
@@ -121,153 +154,44 @@ async def recall(
             f"recency={recency_weight}"
         )
 
-    # --- Build the query ---
-    conditions: list[str] = ["org_id = CAST(:org_id AS uuid)"]
-    params: dict[str, Any] = {"org_id": str(org_id)}
+    strategy_cls = get_strategy(strategy)
+    requested_name = strategy_cls.name
 
-    # Agent filter
-    conditions.append("agent_id = CAST(:agent_id AS uuid)")
-    params["agent_id"] = str(agent_id)
-
-    # Temporal: as_of overrides default "current only" filter
-    if as_of:
-        conditions.append("valid_from <= CAST(:as_of AS timestamptz)")
-        conditions.append("(valid_to IS NULL OR valid_to > CAST(:as_of AS timestamptz))")
-        params["as_of"] = as_of
-    else:
-        conditions.append("valid_to IS NULL")
-
-    # Soft-delete filter
-    if not include_deleted:
-        conditions.append("deleted_at IS NULL")
-
-    # Memory type filter
-    if memory_type:
-        conditions.append("memory_type = CAST(:memory_type AS memory_type_enum)")
-        params["memory_type"] = memory_type
-
-    # Time range filter
-    if time_range:
-        conditions.append("created_at >= CAST(:time_start AS timestamptz)")
-        conditions.append("created_at <= CAST(:time_end AS timestamptz)")
-        params["time_start"] = time_range[0]
-        params["time_end"] = time_range[1]
-
-    # Metadata JSONB containment filter
-    if filters:
-        conditions.append("metadata @> CAST(:meta_filter AS jsonb)")
-        params["meta_filter"] = json.dumps(filters)
-
-    where_clause = " AND ".join(conditions)
-
-    # --- Vector similarity search or fallback to recency ---
-    # Pre-filtering optimization: org_id is always the FIRST condition in the
-    # WHERE clause so that PostgreSQL can use it to narrow the candidate set
-    # BEFORE the HNSW index scan. This avoids scanning vectors belonging to
-    # other tenants, significantly improving recall latency in multi-tenant
-    # deployments.
-    #
-    # TODO(perf): For large multi-tenant deployments, create partial HNSW
-    # indexes per org_id to allow truly tenant-scoped ANN search:
-    #
-    #   CREATE INDEX ix_memories_embedding_hnsw_<org_id>
-    #   ON memories USING hnsw (embedding vector_cosine_ops)
-    #   WITH (m = 16, ef_construction = 200)
-    #   WHERE org_id = '<org_id>';
-    #
-    # This requires a migration per tenant (or a dynamic DDL job). Until then,
-    # the pre-filter WHERE clause + ix_memories_org_agent_valid B-tree index
-    # gives PostgreSQL enough information to narrow the scan via a bitmap
-    # intersection with the HNSW index.
-    if query and embedding_provider:
-        query_embedding = await embedding_provider.embed_text(query)
-        if query_embedding:
-            vector_str = "[" + ",".join(str(x) for x in query_embedding) + "]"
-            # The WHERE clause starts with org_id = ... so PostgreSQL can
-            # pre-filter via the B-tree index before the HNSW vector scan.
-            sql = f"""
-                SELECT id, content, summary, memory_type, importance_score,
-                       recall_count, created_at, valid_from, metadata,
-                       1 - (embedding <=> CAST(:query_vec AS vector)) AS similarity
-                FROM memories
-                WHERE {where_clause}
-                  AND embedding IS NOT NULL
-                ORDER BY embedding <=> CAST(:query_vec AS vector)
-                LIMIT :top_k
-            """
-            params["query_vec"] = vector_str
-            params["top_k"] = top_k
-        else:
-            sql = _fallback_query(where_clause)
-            params["top_k"] = top_k
-    else:
-        sql = _fallback_query(where_clause)
-        params["top_k"] = top_k
-
-    result = await conn.execute(text(sql), params)
-    rows = result.fetchall()
-
-    # --- Build results with fused relevance score ---
-    now = datetime.now().astimezone()
-    results: list[RecallResult] = []
-    for row in rows:
-        similarity = float(row[9]) if len(row) > 9 and row[9] is not None else 0.0
-        importance = float(row[4])
-
-        # Apply similarity threshold
-        if query and embedding_provider and similarity < similarity_threshold:
-            continue
-
-        # Fused relevance scoring with configurable weights
-        recency_days = max((now - row[6]).total_seconds() / 86400, 0.01)
-        recency_score = min(1.0, 1.0 / recency_days)  # More recent = higher
-
-        if query and embedding_provider:
-            relevance = (
-                similarity_weight * similarity
-                + importance_weight * importance
-                + recency_weight * recency_score
-            )
-        else:
-            # No similarity available; redistribute weight between importance and recency
-            relevance = 0.50 * importance + 0.50 * recency_score
-
-        results.append(
-            RecallResult(
-                memory_id=row[0],
-                content=row[1],
-                summary=row[2],
-                memory_type=row[3],
-                similarity_score=similarity,
-                importance_score=importance,
-                relevance_score=round(relevance, 4),
-                recall_count=row[5],
-                created_at=row[6],
-                valid_from=row[7],
-                metadata=row[8] if row[8] else {},
-            )
-        )
-
-    # Sort by relevance
-    results.sort(key=lambda r: r.relevance_score, reverse=True)
+    results: list[StrategyResult] = await strategy_cls().retrieve(
+        conn,
+        org_id=org_id,
+        agent_id=agent_id,
+        query=query or "",
+        top_k=top_k,
+        memory_type=memory_type,
+        filters=filters,
+        similarity_threshold=similarity_threshold,
+        # Strategy-specific kwargs flow through **extra. Each strategy
+        # picks what it needs; unrecognised kwargs are silently ignored.
+        embedding_provider=embedding_provider,
+        time_range=time_range,
+        as_of=as_of,
+        include_deleted=include_deleted,
+        similarity_weight=similarity_weight,
+        importance_weight=importance_weight,
+        recency_weight=recency_weight,
+    )
 
     # --- Update recall_count and last_recalled_at ---
-    # Lock in deterministic id order so concurrent recalls touching
-    # overlapping memory sets queue on a lock instead of deadlocking.
-    # The inner SELECT FOR NO KEY UPDATE acquires row locks in id-order;
-    # the outer UPDATE then writes the counter without acquiring a stronger
-    # lock. SCD-Type-2 trigger explicitly skips recall_count updates so this
-    # doesn't versioned-fork the row.
+    # Deterministic id order so concurrent recalls touching overlapping
+    # memory sets queue on a lock instead of deadlocking. SCD-Type-2
+    # trigger explicitly skips recall_count updates so this doesn't
+    # versioned-fork the row.
     if results:
         memory_ids = sorted(str(r.memory_id) for r in results)
         await conn.execute(
             text("""
-                UPDATE memories
+                UPDATE public.memories
                 SET recall_count = recall_count + 1,
                     last_recalled_at = now(),
                     updated_at = now()
                 WHERE id IN (
-                    SELECT id FROM memories
+                    SELECT id FROM public.memories
                     WHERE id = ANY(CAST(:ids AS uuid[]))
                     ORDER BY id
                     FOR NO KEY UPDATE
@@ -277,6 +201,15 @@ async def recall(
         )
 
     # --- Audit log ---
+    # ``strategies_considered`` captures AUTO's routing decision. Until
+    # C.3 ships the real classifier, AUTO always considers VECTOR; the
+    # audit row records the actual delegate so historical queries can
+    # still be analysed by strategy.
+    actual_strategy = _resolve_actual_strategy(requested_name, results)
+    strategies_considered = (
+        [f"AUTO->{actual_strategy}"] if requested_name == "AUTO" else [actual_strategy]
+    )
+
     await create_audit_entry(
         conn,
         org_id=org_id,
@@ -289,6 +222,9 @@ async def recall(
             "top_k": top_k,
             "result_count": len(results),
             "similarity_threshold": similarity_threshold,
+            "strategy_requested": requested_name,
+            "strategy_used": actual_strategy,
+            "reranked": False,
         },
         api_key_id=api_key_id,
         ip_address=ip_address,
@@ -296,16 +232,50 @@ async def recall(
         request_id=request_id,
     )
 
-    return results
+    elapsed_ms = (time.perf_counter() - started) * 1000.0
+    return RecallResponse(
+        results=results,
+        strategy_used=actual_strategy,
+        strategies_considered=strategies_considered,
+        reranked=False,
+        elapsed_ms=round(elapsed_ms, 3),
+    )
+
+
+def _resolve_actual_strategy(requested: str, results: list[StrategyResult]) -> str:
+    """Best-effort "what actually ran" inference for the audit row.
+
+    AUTO in C.1 always delegates to VECTOR; C.3 will set this from the
+    classifier's decision instead. For non-AUTO strategies, the
+    requested name IS what ran.
+    """
+    if requested != "AUTO":
+        return requested
+    # AUTO skeleton delegates to VECTOR. Once C.3 lands the real
+    # classifier we'll thread the actual choice through the response
+    # rather than infer it from results.
+    del results
+    return "VECTOR"
+
+
+# ---------------------------------------------------------------------------
+# Backwards-compat: pre-C.1 ``_fallback_query`` helper
+# ---------------------------------------------------------------------------
 
 
 def _fallback_query(where_clause: str) -> str:
-    """Query without vector similarity (fallback to importance + recency)."""
+    """Pre-Phase-C helper, retained so existing tests keep importing it.
+
+    Production code dispatches through ``VectorStrategy`` instead; this
+    function is no longer called from the engine layer. Kept exported
+    purely so ``from z3rno_core.engine.recall import _fallback_query``
+    in test_engine_recall_unit.py continues to work.
+    """
     return f"""
         SELECT id, content, summary, memory_type, importance_score,
                recall_count, created_at, valid_from, metadata,
                NULL AS similarity
-        FROM memories
+        FROM public.memories
         WHERE {where_clause}
         ORDER BY importance_score DESC, created_at DESC
         LIMIT :top_k

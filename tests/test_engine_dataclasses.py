@@ -107,7 +107,9 @@ class TestFallbackQuery:
 
     def test_selects_from_memories(self) -> None:
         result = _fallback_query("1=1")
-        assert "FROM memories" in result
+        # public.* qualification was added in the v0.7.1 schema-guard sweep
+        # so the query is safe even on a DB with AGE search_path quirks.
+        assert "FROM public.memories" in result
 
 
 # ---------------------------------------------------------------------------

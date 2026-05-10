@@ -7,7 +7,7 @@ build-backend = "hatchling.build"
 # =============================================================================
 [project]
 name = "z3rno-core"
-version = "0.7.0"
+version = "0.8.0"
 description = "Core memory engine for Z3rno: PostgreSQL schema, SQLAlchemy models, Alembic migrations, and the store/recall/forget/audit library functions."
 readme = "README.md"
 license = { text = "Apache-2.0" }
@@ -229,6 +229,10 @@ ignore = [
 ]
 "src/z3rno_core/graph/**/*.py" = [
   "S608",     # AGE Cypher queries require string interpolation (no parameterized Cypher)
+]
+"src/z3rno_core/retrieval/**/*.py" = [
+  "S608",     # Same query-builder pattern as engine/ — predicates are internal strings, user input is parameterised
+  "PLR2004",  # Magic values are row indices from SQL result tuples (same posture as engine/)
 ]
 "scripts/**/*.py" = [
   "T201",     # print is fine in scripts (CLI output)
