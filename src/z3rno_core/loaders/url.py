@@ -28,6 +28,7 @@ from urllib.parse import urlparse
 import httpx
 from bs4 import BeautifulSoup
 
+from z3rno_core.extras import MissingExtraError
 from z3rno_core.loaders.base import Loader, LoaderInputError, LoaderResult
 
 logger = logging.getLogger(__name__)
@@ -50,6 +51,16 @@ class FetchResult:
 
 class UrlFetchError(LoaderInputError):
     """The HTTP fetch itself failed (timeout, non-2xx, oversize, scheme)."""
+
+
+class UrlFetchMissingExtraError(UrlFetchError, MissingExtraError):
+    """Playwright (or other URL-loader extra) is required but not installed.
+
+    Subclasses both :class:`UrlFetchError` (so existing handlers still
+    catch) AND :class:`~z3rno_core.extras.MissingExtraError` (so a
+    single ``except MissingExtraError`` covers both URL and multimodal
+    failures of the same shape).
+    """
 
 
 async def fetch_url(
@@ -182,10 +193,10 @@ async def render_with_playwright(
     try:
         from playwright.async_api import async_playwright  # noqa: PLC0415
     except ImportError as exc:
-        raise UrlFetchError(
-            "Playwright fallback requested but `playwright` is not installed. "
-            "Install with `pip install 'z3rno-core[playwright]'` and run "
-            "`playwright install chromium` once."
+        raise UrlFetchMissingExtraError.for_extra(
+            extra_name="playwright",
+            dependency="playwright",
+            action="and run `playwright install chromium` once.",
         ) from exc
 
     try:

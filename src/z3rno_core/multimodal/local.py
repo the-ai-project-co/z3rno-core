@@ -36,6 +36,7 @@ from typing import TYPE_CHECKING, Any
 from z3rno_core.multimodal.base import (
     AudioTranscript,
     ImageDescription,
+    MultimodalMissingExtraError,
     MultimodalProvider,
     MultimodalProviderError,
 )
@@ -147,9 +148,9 @@ class LocalMultimodalProvider(MultimodalProvider):
         try:
             from PIL import Image  # noqa: PLC0415
         except ImportError as exc:
-            raise MultimodalProviderError(
-                "Pillow is required for LocalMultimodalProvider; "
-                "install z3rno-core[multimodal-local]"
+            raise MultimodalMissingExtraError.for_extra(
+                extra_name="multimodal-local",
+                dependency="Pillow",
             ) from exc
 
         self._ensure_clip_loaded()
@@ -195,9 +196,9 @@ class LocalMultimodalProvider(MultimodalProvider):
         try:
             from sentence_transformers import SentenceTransformer  # noqa: PLC0415
         except ImportError as exc:
-            raise MultimodalProviderError(
-                "sentence-transformers is required for LocalMultimodalProvider; "
-                "install z3rno-core[multimodal-local]"
+            raise MultimodalMissingExtraError.for_extra(
+                extra_name="multimodal-local",
+                dependency="sentence-transformers",
             ) from exc
 
         kwargs: dict[str, Any] = {}
@@ -280,9 +281,9 @@ class LocalMultimodalProvider(MultimodalProvider):
         try:
             import whisper  # noqa: PLC0415
         except ImportError as exc:
-            raise MultimodalProviderError(
-                "openai-whisper is required for LocalMultimodalProvider; "
-                "install z3rno-core[multimodal-local]"
+            raise MultimodalMissingExtraError.for_extra(
+                extra_name="multimodal-local",
+                dependency="openai-whisper",
             ) from exc
 
         kwargs: dict[str, Any] = {}

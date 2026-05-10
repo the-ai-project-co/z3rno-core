@@ -13,6 +13,8 @@ from abc import ABC, abstractmethod
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from z3rno_core.extras import MissingExtraError
+
 # ---------------------------------------------------------------------------
 # Result schemas
 # ---------------------------------------------------------------------------
@@ -69,6 +71,17 @@ class MultimodalError(Exception):
 
 class MultimodalProviderError(MultimodalError):
     """Terminal provider error (auth, model-not-found, malformed input)."""
+
+
+class MultimodalMissingExtraError(MultimodalProviderError, MissingExtraError):
+    """Raised when the multimodal provider needs a pip extra that isn't installed.
+
+    Subclasses both :class:`MultimodalProviderError` (so existing
+    ``except MultimodalProviderError`` clauses still catch it) AND
+    :class:`~z3rno_core.extras.MissingExtraError` (so a uniform
+    ``except MissingExtraError`` catches it alongside Playwright /
+    other extras-driven failures).
+    """
 
 
 class MultimodalRateLimitError(MultimodalError):
