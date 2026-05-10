@@ -19,7 +19,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Literal
+from typing import Any, Literal
 from uuid import UUID
 
 IngestKind = Literal["text", "url", "file", "s3_uri"]
@@ -76,5 +76,8 @@ class IngestRunSummary:
     file_size: int | None = None
     distill_job_id: UUID | None = None
     error: str | None = None
+    # Non-fatal anomalies (csv truncation, playwright fallback declined,
+    # etc.) — each a small dict {"code": "...", "detail": "..."}.
+    warnings: list[dict[str, Any]] = field(default_factory=list)
     started_at: datetime | None = None
     completed_at: datetime | None = None

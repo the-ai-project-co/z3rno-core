@@ -196,6 +196,22 @@ class IngestPipeline:
                 mime_type=materialized.content_type,
             )
 
+            # Surface non-fatal loader anomalies as structured warnings so
+            # the operator polling /v1/ingest/{job_id} sees them. Today:
+            # CSV row-cap truncation. New loaders can add more codes
+            # without changing this list — anything the loader emits as
+            # a recognised "warn"-shaped metadata key gets propagated.
+            if loader_result.metadata.get("truncated"):
+                summary.warnings.append(
+                    {
+                        "code": "csv_truncated",
+                        "detail": (
+                            f"row cap hit at {loader_result.metadata.get('row_count', '?')} "
+                            "rows; raise INGEST_MAX_CSV_ROWS to ingest more"
+                        ),
+                    }
+                )
+
             # Store — one Memo per ingest in B.1.
             metadata = {
                 "ingest_kind": ingest_input.kind,
@@ -375,6 +391,7 @@ class IngestPipeline:
                 memory_ids=summary.memory_ids,
                 memos_written=len(summary.memory_ids),
                 distill_job_id=summary.distill_job_id,
+                warnings=summary.warnings if summary.warnings else None,
                 completed_at_now=True,
             )
 

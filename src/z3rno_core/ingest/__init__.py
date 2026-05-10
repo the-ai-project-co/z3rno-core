@@ -37,6 +37,7 @@ from z3rno_core.ingest.schemas import (
 from z3rno_core.ingest.state import (
     find_memory_by_source_uri,
     insert_ingest_job,
+    mark_stale_running_jobs_failed,
     update_ingest_job,
 )
 
@@ -49,5 +50,6 @@ __all__ = [
     "PostIngestCallback",
     "find_memory_by_source_uri",
     "insert_ingest_job",
+    "mark_stale_running_jobs_failed",
     "update_ingest_job",
 ]

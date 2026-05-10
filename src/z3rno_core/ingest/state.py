@@ -10,7 +10,8 @@ any of them runs.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+import json
+from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
 from sqlalchemy import text
@@ -92,6 +93,7 @@ async def update_ingest_job(
     memos_written: int | None = None,
     distill_job_id: UUID | None = None,
     error: str | None = None,
+    warnings: list[dict[str, Any]] | None = None,
     started_at_now: bool = False,
     completed_at_now: bool = False,
 ) -> None:
@@ -117,6 +119,9 @@ async def update_ingest_job(
     if distill_job_id is not None:
         sets.append("distill_job_id = CAST(:distill_job_id AS uuid)")
         params["distill_job_id"] = str(distill_job_id)
+    if warnings is not None:
+        sets.append("warnings = CAST(:warnings AS jsonb)")
+        params["warnings"] = json.dumps(warnings)
     if started_at_now:
         sets.append("started_at = now()")
     if completed_at_now:
@@ -129,6 +134,65 @@ async def update_ingest_job(
 # ---------------------------------------------------------------------------
 # Lookups
 # ---------------------------------------------------------------------------
+
+
+async def mark_stale_running_jobs_failed(
+    conn: AsyncConnection,
+    *,
+    stale_after_seconds: int = 3600,
+    limit: int = 100,
+) -> list[UUID]:
+    """Find and fail ingest_jobs stuck in ``running`` past the threshold.
+
+    The watchdog for orphaned ingest runs: if ``IngestPipeline.run()``
+    crashes before it can call ``update_ingest_job(status="failed")``,
+    the row stays in ``running`` forever. This helper scans for rows
+    whose ``updated_at`` is older than ``stale_after_seconds`` and
+    transitions them to ``failed`` with an explanatory error.
+
+    Returns the list of job_ids it transitioned. Empty list when none
+    are stale. The watchdog runs RLS-bypassing (worker DB role has
+    ``BYPASSRLS``) so it sees jobs across all tenants.
+
+    The threshold is intentionally generous — even multi-GB ingests
+    finish well inside an hour. Operators can tighten it via the
+    ``INGEST_WATCHDOG_STALE_AFTER_SECONDS`` env var on the server
+    side.
+    """
+    rows = (
+        await conn.execute(
+            text("""
+                SELECT id
+                FROM public.ingest_jobs
+                WHERE status = 'running'
+                  AND updated_at < now() - make_interval(secs => :secs)
+                ORDER BY updated_at
+                LIMIT :limit
+            """),
+            {"secs": stale_after_seconds, "limit": limit},
+        )
+    ).fetchall()
+
+    if not rows:
+        return []
+
+    stale_ids = [r[0] for r in rows]
+    error_msg = (
+        f"watchdog: stale running >{stale_after_seconds}s; row never transitioned"
+    )
+    await conn.execute(
+        text("""
+            UPDATE public.ingest_jobs
+            SET status = 'failed',
+                error = COALESCE(error, :error_msg),
+                updated_at = now(),
+                completed_at = now()
+            WHERE id = ANY(CAST(:ids AS uuid[]))
+              AND status = 'running'
+        """),
+        {"ids": [str(i) for i in stale_ids], "error_msg": error_msg},
+    )
+    return [UUID(str(i)) for i in stale_ids]
 
 
 async def find_memory_by_source_uri(
