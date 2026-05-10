@@ -111,6 +111,36 @@ class LoaderRegistry:
 
     # ---- introspection ---------------------------------------------------
 
+    def describe_loaders(self) -> list[dict[str, list[str] | str]]:
+        """Return one descriptor per registered loader.
+
+        Each descriptor has ``name``, ``mime_types``, and ``extensions`` —
+        suitable for surfacing in ``GET /v1/ingest/loaders`` so SDK
+        consumers can ask the server "what can you actually ingest right
+        now?" without trial-and-error.
+        """
+        loader_to_mimes: dict[str, list[str]] = {}
+        loader_to_exts: dict[str, list[str]] = {}
+        loaders: dict[str, Loader] = {}
+        for mime, loader in self._mime.items():
+            loaders[loader.name] = loader
+            loader_to_mimes.setdefault(loader.name, []).append(mime)
+        for ext, loader in self._extension.items():
+            loaders[loader.name] = loader
+            loader_to_exts.setdefault(loader.name, []).append(ext)
+        if self._fallback is not None:
+            loaders[self._fallback.name] = self._fallback
+
+        return [
+            {
+                "name": name,
+                "mime_types": sorted(loader_to_mimes.get(name, [])),
+                "extensions": sorted(loader_to_exts.get(name, [])),
+                "is_fallback": "true" if loaders[name] is self._fallback else "false",
+            }
+            for name in sorted(loaders.keys())
+        ]
+
     @property
     def known_mime_types(self) -> list[str]:
         return sorted(self._mime.keys())

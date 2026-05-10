@@ -38,6 +38,7 @@ async def insert_ingest_job(
     filename: str | None = None,
     file_size: int | None = None,
     status: str = "queued",
+    search_batch_id: UUID | None = None,
 ) -> None:
     """Insert a fresh ``ingest_jobs`` row.
 
@@ -47,10 +48,11 @@ async def insert_ingest_job(
     """
     await conn.execute(
         text("""
-            INSERT INTO ingest_jobs (
+            INSERT INTO public.ingest_jobs (
                 id, org_id, agent_id, dataset_id,
                 kind, source_uri, content_type, filename, file_size,
                 status, memory_ids, memos_written,
+                search_batch_id,
                 created_at, updated_at
             ) VALUES (
                 CAST(:id AS uuid),
@@ -61,6 +63,7 @@ async def insert_ingest_job(
                 :source_uri, :content_type, :filename, :file_size,
                 CAST(:status AS ingest_job_status),
                 :memory_ids, 0,
+                CAST(:search_batch_id AS uuid),
                 now(), now()
             )
         """),
@@ -76,6 +79,7 @@ async def insert_ingest_job(
             "file_size": file_size,
             "status": status,
             "memory_ids": [],
+            "search_batch_id": str(search_batch_id) if search_batch_id else None,
         },
     )
 
@@ -193,6 +197,49 @@ async def mark_stale_running_jobs_failed(
         {"ids": [str(i) for i in stale_ids], "error_msg": error_msg},
     )
     return [UUID(str(i)) for i in stale_ids]
+
+
+async def get_search_batch_aggregate(
+    conn: AsyncConnection,
+    *,
+    org_id: UUID,
+    batch_id: UUID,
+) -> dict[str, Any] | None:
+    """Return aggregate status for all jobs in a search batch.
+
+    Returns a dict with ``total``, per-status counts, and the list of
+    ``job_ids`` so the caller can drill in. Returns ``None`` when the
+    batch_id doesn't exist for this org (RLS-scoped).
+    """
+    row = (
+        await conn.execute(
+            text("""
+                SELECT
+                    count(*) AS total,
+                    count(*) FILTER (WHERE status = 'queued') AS queued,
+                    count(*) FILTER (WHERE status = 'running') AS running,
+                    count(*) FILTER (WHERE status = 'completed') AS completed,
+                    count(*) FILTER (WHERE status = 'failed') AS failed,
+                    array_agg(id ORDER BY created_at) AS job_ids
+                FROM public.ingest_jobs
+                WHERE org_id = CAST(:org_id AS uuid)
+                  AND search_batch_id = CAST(:batch_id AS uuid)
+            """),
+            {"org_id": str(org_id), "batch_id": str(batch_id)},
+        )
+    ).fetchone()
+
+    if row is None or row[0] == 0:
+        return None
+
+    return {
+        "total": row[0],
+        "queued": row[1],
+        "running": row[2],
+        "completed": row[3],
+        "failed": row[4],
+        "job_ids": [UUID(str(jid)) for jid in (row[5] or [])],
+    }
 
 
 async def find_memory_by_source_uri(
