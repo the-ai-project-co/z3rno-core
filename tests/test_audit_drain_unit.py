@@ -10,6 +10,7 @@ Covers:
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 from uuid import uuid4
 
@@ -20,6 +21,22 @@ from z3rno_core.engine.audit import (
     list_orgs_with_pending,
 )
 
+# Each pending row is the 12-tuple emitted by the SELECT in drain_audit_chain.
+PendingRow = tuple[
+    int,            # id
+    Any,            # agent_id
+    Any,            # user_id
+    str,            # operation
+    Any,            # memory_id
+    Any,            # memory_type
+    Any,            # details (jsonb -> dict)
+    Any,            # api_key_id
+    Any,            # ip_address
+    Any,            # user_agent
+    Any,            # request_id
+    datetime,       # created_at
+]
+
 
 def _mock_lock_result(*, locked: bool) -> MagicMock:
     m = MagicMock()
@@ -27,7 +44,7 @@ def _mock_lock_result(*, locked: bool) -> MagicMock:
     return m
 
 
-def _mock_pending_rows(rows: list[tuple]) -> MagicMock:
+def _mock_pending_rows(rows: list[PendingRow]) -> MagicMock:
     m = MagicMock()
     m.fetchall.return_value = rows
     return m
@@ -87,7 +104,7 @@ class TestDrainAuditChain:
         """First-ever audit row for this org: prev_hash is None."""
         org_id = uuid4()
         now = datetime.now(tz=UTC)
-        pending_row = (
+        pending_row: PendingRow = (
             1,  # id
             None,  # agent_id
             None,  # user_id
@@ -127,7 +144,7 @@ class TestDrainAuditChain:
         """Each row's prev_hash equals the previous row's row_hash."""
         org_id = uuid4()
         now = datetime.now(tz=UTC)
-        pending_rows = [
+        pending_rows: list[PendingRow] = [
             (
                 1, None, None, "store", None, None, {"i": 1},
                 None, None, None, None, now,
@@ -173,7 +190,7 @@ class TestDrainAuditChain:
         """The DELETE uses exactly the ids of the rows just inserted."""
         org_id = uuid4()
         now = datetime.now(tz=UTC)
-        pending_rows = [
+        pending_rows: list[PendingRow] = [
             (10, None, None, "store", None, None, {}, None, None, None, None, now),
             (11, None, None, "store", None, None, {}, None, None, None, None, now),
         ]
@@ -202,7 +219,7 @@ class TestFlushAuditChain:
         org_id = uuid4()
         now = datetime.now(tz=UTC)
         # Two batches: first drain returns 2 rows, second returns 0.
-        first_batch = [
+        first_batch: list[PendingRow] = [
             (1, None, None, "store", None, None, {}, None, None, None, None, now),
             (2, None, None, "store", None, None, {}, None, None, None, None, now),
         ]
@@ -231,7 +248,7 @@ class TestFlushAuditChain:
         org_id = uuid4()
         now = datetime.now(tz=UTC)
         # Each call returns 1 row — would loop forever without the cap.
-        single_row = [
+        single_row: list[PendingRow] = [
             (1, None, None, "store", None, None, {}, None, None, None, None, now),
         ]
         # Build enough side_effects for 5 iterations of 5 calls each.
