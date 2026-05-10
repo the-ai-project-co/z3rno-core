@@ -106,6 +106,9 @@ async def recall(
     query: str | None = None,
     strategy: str = "AUTO",
     embedding_provider: EmbeddingProvider | None = None,
+    # Phase C.2+: optional LLM gateway for GRAPH / TRIPLET / TRACE / ASK.
+    # Forwarded to the strategy as ``llm_gateway`` in **extra.
+    llm_gateway: Any | None = None,
     memory_type: str | None = None,
     filters: dict[str, Any] | None = None,
     top_k: int = 10,
@@ -169,6 +172,7 @@ async def recall(
         # Strategy-specific kwargs flow through **extra. Each strategy
         # picks what it needs; unrecognised kwargs are silently ignored.
         embedding_provider=embedding_provider,
+        llm_gateway=llm_gateway,
         time_range=time_range,
         as_of=as_of,
         include_deleted=include_deleted,

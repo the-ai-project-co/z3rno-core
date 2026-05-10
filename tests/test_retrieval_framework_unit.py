@@ -69,17 +69,19 @@ class TestRegistry:
             register_strategy(Headless)
 
     def test_reset_for_tests_round_trips(self) -> None:
-        """The reset helper wipes + reseeds the registry cleanly."""
-        original = registered_strategies()
+        """The reset helper wipes + reseeds the registry cleanly.
+
+        Snapshot the full registry BEFORE the wipe, then restore from
+        the snapshot so subsequent tests in the suite still find every
+        registered strategy (GRAPH, TRIPLET, etc., as they arrive in
+        later slices).
+        """
+        from z3rno_core.retrieval.base import _REGISTRY  # noqa: PLC0415
+
+        snapshot = list(_REGISTRY.values())
         _reset_registry_for_tests([VectorStrategy])
         assert registered_strategies() == ["VECTOR"]
-        # Restore for the rest of the suite.
-        _reset_registry_for_tests([VectorStrategy, LexicalStrategy, AutoStrategy])
-        # And finally back to whatever the suite-time set was — eq doesn't
-        # matter, the strategies/__init__.py side-effect re-registers them
-        # on next import, but the next test's import order is undefined.
-        # Safer: explicitly re-register the canonical C.1 set.
-        del original
+        _reset_registry_for_tests(snapshot)
 
 
 # ---------------------------------------------------------------------------

@@ -7,7 +7,7 @@ build-backend = "hatchling.build"
 # =============================================================================
 [project]
 name = "z3rno-core"
-version = "0.8.0"
+version = "0.9.0"
 description = "Core memory engine for Z3rno: PostgreSQL schema, SQLAlchemy models, Alembic migrations, and the store/recall/forget/audit library functions."
 readme = "README.md"
 license = { text = "Apache-2.0" }
@@ -233,6 +233,11 @@ ignore = [
 "src/z3rno_core/retrieval/**/*.py" = [
   "S608",     # Same query-builder pattern as engine/ — predicates are internal strings, user input is parameterised
   "PLR2004",  # Magic values are row indices from SQL result tuples (same posture as engine/)
+  "PLR0912",  # Strategies legitimately have many branches (kwargs unpacking, optional LLM, graceful degradation paths)
+  "PLR0915",  # Phase C strategies are pipelines — many statements by design
+  "PERF401",  # for-append idioms read clearer here than list.extend with generator (AGE row parsing)
+  "S110",     # try-except-pass for AGE-extension-not-loaded mirrors graph/queries.py
+  "SIM105",   # contextlib.suppress not ideal for async run_sync wrappers
 ]
 "scripts/**/*.py" = [
   "T201",     # print is fine in scripts (CLI output)
