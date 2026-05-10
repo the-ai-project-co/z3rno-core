@@ -30,6 +30,7 @@ supported format available.
 
 from __future__ import annotations
 
+from z3rno_core.loaders.audio import AudioLoader
 from z3rno_core.loaders.base import (
     Loader,
     LoaderError,
@@ -37,9 +38,13 @@ from z3rno_core.loaders.base import (
     LoaderResult,
     UnsupportedContentTypeError,
 )
-from z3rno_core.loaders.code import CodeLoader, supported_extensions as code_supported_extensions
+from z3rno_core.loaders.code import (
+    CodeLoader,
+    supported_extensions as code_supported_extensions,
+)
 from z3rno_core.loaders.csv import CsvLoader
 from z3rno_core.loaders.docx import DocxLoader
+from z3rno_core.loaders.image import ImageLoader
 from z3rno_core.loaders.markdown import MarkdownLoader
 from z3rno_core.loaders.pdf import PdfLoader
 from z3rno_core.loaders.registry import (
@@ -113,11 +118,63 @@ _registry.register(
 )
 
 
+# ---------------------------------------------------------------------------
+# Phase B.2 — multimodal loaders (image / audio).
+#
+# Image and audio loaders each need a MultimodalProvider injected on
+# construction. They are *not* registered in the default registry at
+# import time because:
+#   1. Constructing a real provider would require credentials and a
+#      runtime decision (litellm vs stub vs local).
+#   2. Multimodal is an opt-in capability gated by MULTIMODAL_ENABLED
+#      at the server tier.
+#
+# Operators wire image/audio loaders into the default registry via
+# :func:`register_multimodal_loaders` once they have a provider.
+# ---------------------------------------------------------------------------
+
+
+def register_multimodal_loaders(
+    registry: LoaderRegistry,
+    *,
+    image_loader: ImageLoader | None = None,
+    audio_loader: AudioLoader | None = None,
+) -> None:
+    """Register image and/or audio loaders on ``registry``.
+
+    Idempotent on the registry's MIME table — calling twice with the
+    same loader replaces the prior registration.
+    """
+    if image_loader is not None:
+        registry.register(
+            image_loader,
+            mime_types=["image/jpeg", "image/png", "image/webp", "image/gif"],
+            extensions=["jpg", "jpeg", "png", "webp", "gif"],
+        )
+    if audio_loader is not None:
+        registry.register(
+            audio_loader,
+            mime_types=[
+                "audio/mpeg",
+                "audio/mp3",
+                "audio/mp4",
+                "audio/m4a",
+                "audio/wav",
+                "audio/webm",
+                "audio/flac",
+                "audio/ogg",
+            ],
+            extensions=["mp3", "wav", "m4a", "mp4", "webm", "flac", "ogg"],
+        )
+
+
 __all__ = [
+    "AudioLoader",
     "CodeLoader",
     "CsvLoader",
     "DocxLoader",
     "FetchResult",
+    "ImageLoader",
     "Loader",
     "LoaderError",
     "LoaderInputError",
@@ -131,5 +188,6 @@ __all__ = [
     "UrlLoader",
     "fetch_url",
     "get_default_registry",
+    "register_multimodal_loaders",
     "sniff_mime_type",
 ]

@@ -122,6 +122,47 @@ _DROP_TAGS = ("script", "style", "noscript", "nav", "aside", "header", "footer",
 _HTTP_ERROR_THRESHOLD = 400
 
 
+# ---------------------------------------------------------------------------
+# Playwright fallback — Phase B.2 opt-in for JS-rendered pages
+# ---------------------------------------------------------------------------
+
+
+async def render_with_playwright(
+    url: str,
+    *,
+    timeout_seconds: float = 30.0,
+) -> str:
+    """Render ``url`` in headless Chromium and return the resolved DOM.
+
+    Imported lazily so the rest of the URL loader keeps working even
+    when the optional ``[playwright]`` extra isn't installed. Raises
+    :class:`UrlFetchError` if Playwright isn't importable, or if the
+    browser/page step fails.
+    """
+    try:
+        from playwright.async_api import async_playwright  # noqa: PLC0415
+    except ImportError as exc:
+        raise UrlFetchError(
+            "Playwright fallback requested but `playwright` is not installed. "
+            "Install with `pip install 'z3rno-core[playwright]'` and run "
+            "`playwright install chromium` once."
+        ) from exc
+
+    try:
+        async with async_playwright() as p:
+            browser = await p.chromium.launch(headless=True)
+            try:
+                page = await browser.new_page()
+                await page.goto(url, timeout=int(timeout_seconds * 1000))
+                await page.wait_for_load_state("networkidle", timeout=int(timeout_seconds * 1000))
+                html = await page.content()
+            finally:
+                await browser.close()
+        return str(html or "")
+    except Exception as exc:
+        raise UrlFetchError(f"playwright render failed for {url}: {exc}") from exc
+
+
 class UrlLoader(Loader):
     """HTML / plain text / Markdown body loader.
 

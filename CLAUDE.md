@@ -27,14 +27,17 @@ make seed                        # Load dev seed data
 - `src/z3rno_core/distill/` — **Phase A — Forge distillation:** LLM Gateway (LiteLLM + Instructor), entity/relationship extraction, summarization, graph writer (writes Memos + provenance + AGE edges)
 - `src/z3rno_core/chunking/` — **Phase A:** token-aware (tiktoken) and paragraph-boundary chunkers; pure functions
 - `src/z3rno_core/forge/` — **Phase A:** ForgePipeline orchestrator (parse → distill → retain) with idempotency, bounded concurrency, distill_jobs lifecycle
-- `src/z3rno_core/loaders/` — **Phase B.1 — Ingestion loaders:** Loader ABC + LoaderRegistry; PDF (pypdf), DOCX (python-docx), CSV (stdlib + dialect sniff), Markdown, plain text, code (24 languages), URL (httpx + BeautifulSoup HTML extraction). Magic-byte sniffing routes binary formats reliably.
-- `src/z3rno_core/storage/` — **Phase B.1:** StorageBackend ABC + LocalStorageBackend (`<root>/<org_id>/<yyyy>/<mm>/<uuid>.<ext>`, atomic writes, path-traversal blocked). S3 in Phase B.2.
+- `src/z3rno_core/loaders/` — **Phase B.1+B.2 — Loaders:** Loader ABC + LoaderRegistry; PDF (pypdf), DOCX (python-docx), CSV (stdlib + dialect sniff), Markdown, plain text, code (24 languages), URL (httpx + BeautifulSoup HTML extraction + opt-in Playwright fallback). **Phase B.2:** ImageLoader + AudioLoader with magic-byte sniffing for JPEG/PNG/GIF/WebP/MP3/WAV/FLAC/OGG.
+- `src/z3rno_core/storage/` — **Phase B.1+B.2:** StorageBackend ABC + LocalStorageBackend (filesystem) + **S3StorageBackend (Phase B.2)** with prefix sandbox + cross-bucket block.
 - `src/z3rno_core/ingest/` — **Phase B.1:** IngestPipeline orchestrator (parse → dedupe → load → store → optional auto-distill); `ingest_jobs` state helpers; one Memo per ingest in B.1.
+- `src/z3rno_core/multimodal/` — **Phase B.2:** MultimodalProvider ABC + LiteLLMMultimodalProvider (vision via gpt-4o; audio via Whisper) + StubMultimodalProvider for tests.
+- `src/z3rno_core/scrapers/` — **Phase B.2:** SearchProvider ABC + TavilyScraper for Tavily-driven web discovery.
 - `migrations/versions/` — 16 Alembic migrations (001–016; **016** = datasets + ingest_jobs + dataset_id columns, RLS, indexes, downgradable)
 - `seeds/dev_seed.py` — Dev seed data (2 tenants, 500 memories, 1000 audit entries)
 - `docs/` — SCHEMA.md, MULTI_TENANCY.md, ADR-001
 - `../z3rno-process-docs/improvements/PHASE-A-IMPLEMENTATION.md` — full operator reference for the Forge pipeline
 - `../z3rno-process-docs/improvements/PHASE-B1-IMPLEMENTATION.md` — full operator reference for the Ingestion surface
+- `../z3rno-process-docs/improvements/PHASE-B2-IMPLEMENTATION.md` — full operator reference for Multimodal + Search + S3 + Playwright
 
 ## Phase A — Forge (opt-in)
 
@@ -85,6 +88,32 @@ The ingestion surface is dormant until the operator sets `INGEST_ENABLED=true` i
 **`engine.store.store()` extended.** Now accepts `dataset_id: UUID | None` so the FK is set during INSERT (not via UPDATE) — sidesteps the SCD-2 trigger's recursion guard. Existing callers don't pass it; default `None` preserves all pre-Phase-B-1 behavior.
 
 **Idempotency.** URL re-ingests dedupe on `(org_id, dataset_id, source_uri)`. Text and file ingests intentionally do not — every call creates a new Memo. Phase D's `refine()` will add content-hash dedupe for files.
+
+## Phase B.2 — Multimodal + Search + S3 + Playwright (opt-in)
+
+Four independently-gated capabilities. Each is dormant by default:
+
+- **`MULTIMODAL_ENABLED=true`** activates ImageLoader + AudioLoader. Vision routes through `litellm.acompletion`, audio through `litellm.atranscription` (Whisper). Worker registers them with the loader registry on startup via `register_multimodal_loaders()`.
+- **`STORAGE_BACKEND=s3`** activates `S3StorageBackend` for managed-cloud deployments. Same `StorageBackend` interface as `LocalStorageBackend` — IngestPipeline is backend-agnostic. Returns `s3://...` URIs.
+- **`TAVILY_API_KEY` set** activates `POST /v1/ingest/search`. Asks Tavily for top-N URLs, enqueues one ingest_run per hit.
+- **`URL_PLAYWRIGHT_ENABLED=true`** + `pip install 'z3rno-core[playwright]'` activates JS-rendered fallback in the URL loader.
+
+**Public API additions (z3rno_core.multimodal):**
+- `MultimodalProvider` ABC + `LiteLLMMultimodalProvider` + `StubMultimodalProvider` + factory
+- `ImageDescription`, `AudioTranscript` schemas
+- `MultimodalError` and 3 typed subclasses
+
+**Public API additions (z3rno_core.scrapers):**
+- `SearchProvider` ABC + `TavilyScraper` + `SearchResult` schema
+
+**Public API additions (z3rno_core.storage):**
+- `S3StorageBackend` — aioboto3-backed, prefix sandbox, cross-bucket block
+
+**Public API additions (z3rno_core.loaders):**
+- `ImageLoader`, `AudioLoader` (each requires a `MultimodalProvider` on construction)
+- `register_multimodal_loaders(registry, image_loader=, audio_loader=)` helper
+- `render_with_playwright(url)` — lazy-imports Playwright, raises clear error if extra not installed
+- `sniff_mime_type()` extended for image/* + audio/* magic bytes
 
 ## Key Conventions
 

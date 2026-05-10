@@ -22,9 +22,11 @@ from z3rno_core.storage.base import (
     StorageNotFoundError,
 )
 from z3rno_core.storage.local import LocalStorageBackend
+from z3rno_core.storage.s3 import S3StorageBackend
 
 __all__ = [
     "LocalStorageBackend",
+    "S3StorageBackend",
     "StorageBackend",
     "StorageError",
     "StorageNotFoundError",

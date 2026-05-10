@@ -125,7 +125,7 @@ class LoaderRegistry:
 # ---------------------------------------------------------------------------
 
 
-def sniff_mime_type(content: bytes) -> str | None:
+def sniff_mime_type(content: bytes) -> str | None:  # noqa: PLR0911 — one return per format is the clearest expression
     """Detect a MIME type from a content prefix when one is unambiguous.
 
     Returns ``None`` when the content can't be sniffed reliably (text
@@ -155,6 +155,38 @@ def sniff_mime_type(content: bytes) -> str | None:
         if b"word/document.xml" in content[:8192]:
             return "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
         return "application/zip"
+
+    # JPEG: starts with FF D8 FF
+    if content[:3] == b"\xff\xd8\xff":
+        return "image/jpeg"
+
+    # PNG: 89 50 4E 47 0D 0A 1A 0A
+    if content[:8] == b"\x89PNG\r\n\x1a\n":
+        return "image/png"
+
+    # GIF: GIF87a or GIF89a
+    if content[:6] in (b"GIF87a", b"GIF89a"):
+        return "image/gif"
+
+    # WebP: RIFF....WEBP
+    if content[:4] == b"RIFF" and content[8:12] == b"WEBP":
+        return "image/webp"
+
+    # MP3: ID3 tag header (most tagged MP3s) or 0xFF 0xFB/F3 frame sync
+    if content[:3] == b"ID3" or content[:2] == b"\xff\xfb" or content[:2] == b"\xff\xf3":
+        return "audio/mpeg"
+
+    # WAV: RIFF....WAVE
+    if content[:4] == b"RIFF" and content[8:12] == b"WAVE":
+        return "audio/wav"
+
+    # FLAC: fLaC
+    if content[:4] == b"fLaC":
+        return "audio/flac"
+
+    # OGG: OggS
+    if content[:4] == b"OggS":
+        return "audio/ogg"
 
     return None
 

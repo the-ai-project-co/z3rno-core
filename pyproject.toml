@@ -7,7 +7,7 @@ build-backend = "hatchling.build"
 # =============================================================================
 [project]
 name = "z3rno-core"
-version = "0.4.0"
+version = "0.5.0"
 description = "Core memory engine for Z3rno: PostgreSQL schema, SQLAlchemy models, Alembic migrations, and the store/recall/forget/audit library functions."
 readme = "README.md"
 license = { text = "Apache-2.0" }
@@ -65,6 +65,10 @@ dependencies = [
   "python-docx>=1.1.0",
   "beautifulsoup4>=4.12.0",
   "httpx>=0.27.0",
+  # Phase B.2 — S3 storage backend + Tavily web search. Both are dormant
+  # unless STORAGE_BACKEND=s3 / TAVILY_API_KEY is set respectively.
+  "aioboto3>=13.0.0",
+  "tavily-python>=0.5.0",
   # Resilience
   "tenacity>=9.0.0",
   # Logging
@@ -78,6 +82,25 @@ dependencies = [
 # entity extraction). Imported only when running as a Celery worker.
 worker = [
   "celery[redis]>=5.4.0",
+]
+
+# Phase B.2.x — Playwright fallback for JS-rendered pages. Browser
+# binaries are ~300 MB so we leave this strictly opt-in.
+playwright = [
+  "playwright>=1.49.0",
+]
+
+# Phase B.2.1 (reserved) — local CLIP / Whisper models. Several GB of
+# model weights and PyTorch; explicitly opt-in.
+multimodal-local = [
+  "sentence-transformers>=3.0.0",
+  "openai-whisper>=20240930",
+]
+
+# Test infrastructure — moto for mocking AWS services without a real
+# bucket. Opt-in to keep the default install lean.
+test-aws = [
+  "moto[s3]>=5.0.0",
 ]
 
 # Observability — optional because it adds 30+ MB of OTel deps that
@@ -261,6 +284,20 @@ ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
 module = ["pypdf", "pypdf.*", "docx", "docx.*", "bs4", "bs4.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = [
+  "aioboto3",
+  "aioboto3.*",
+  "aiobotocore.*",
+  "botocore.*",
+  "tavily",
+  "tavily.*",
+  "playwright.*",
+  "moto",
+  "moto.*",
+]
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
