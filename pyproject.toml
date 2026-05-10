@@ -7,7 +7,7 @@ build-backend = "hatchling.build"
 # =============================================================================
 [project]
 name = "z3rno-core"
-version = "0.5.0"
+version = "0.6.0"
 description = "Core memory engine for Z3rno: PostgreSQL schema, SQLAlchemy models, Alembic migrations, and the store/recall/forget/audit library functions."
 readme = "README.md"
 license = { text = "Apache-2.0" }
@@ -297,6 +297,12 @@ module = [
   "playwright.*",
   "moto",
   "moto.*",
+  "PIL",
+  "PIL.*",
+  "sentence_transformers",
+  "sentence_transformers.*",
+  "whisper",
+  "whisper.*",
 ]
 ignore_missing_imports = true
 

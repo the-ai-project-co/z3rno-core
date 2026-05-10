@@ -96,6 +96,9 @@ class IngestPipeline:
         url_fetch_max_bytes: int = 50 * 1024 * 1024,
         url_fetch_timeout_seconds: float = 15.0,
         url_allowed_schemes: tuple[str, ...] = ("http", "https"),
+        url_playwright_enabled: bool = False,
+        url_playwright_min_chars: int = 200,
+        url_playwright_timeout_seconds: float = 30.0,
     ) -> None:
         self._registry = registry
         self._storage = storage
@@ -103,6 +106,9 @@ class IngestPipeline:
         self._url_fetch_max_bytes = url_fetch_max_bytes
         self._url_fetch_timeout_seconds = url_fetch_timeout_seconds
         self._url_allowed_schemes = url_allowed_schemes
+        self._url_playwright_enabled = url_playwright_enabled
+        self._url_playwright_min_chars = url_playwright_min_chars
+        self._url_playwright_timeout_seconds = url_playwright_timeout_seconds
 
     # ---- public entry ----------------------------------------------------
 
@@ -267,6 +273,9 @@ class IngestPipeline:
                 allowed_schemes=self._url_allowed_schemes,
                 timeout_seconds=self._url_fetch_timeout_seconds,
                 max_bytes=self._url_fetch_max_bytes,
+                playwright_enabled=self._url_playwright_enabled,
+                playwright_min_chars=self._url_playwright_min_chars,
+                playwright_timeout_seconds=self._url_playwright_timeout_seconds,
             )
             return self._Materialized(
                 content=fetched.content,
@@ -274,6 +283,20 @@ class IngestPipeline:
                 filename=inp.filename,
                 # Use the canonical post-redirect URL as the dedupe key.
                 source_uri=fetched.url,
+            )
+
+        if inp.kind == "s3_uri":
+            # Phase B.2.1 direct-to-S3 flow: the artifact is already at
+            # ``source_uri`` (the client uploaded out-of-band). Read
+            # bytes via the storage backend and route them through the
+            # loader registry like a normal file.
+            assert inp.source_uri is not None
+            content = await self._storage.read_artifact(inp.source_uri)
+            return self._Materialized(
+                content=content,
+                content_type=inp.content_type or "application/octet-stream",
+                filename=inp.filename,
+                source_uri=inp.source_uri,
             )
 
         # kind == "file" — persist via storage backend; the storage URI
@@ -361,22 +384,25 @@ class IngestPipeline:
 # ---------------------------------------------------------------------------
 
 
+_REQUIRED_FIELD_BY_KIND: dict[str, str] = {
+    "text": "text",
+    "url": "url",
+    "file": "content",
+    "s3_uri": "source_uri",
+}
+
+
 def _validate_input(inp: IngestInput) -> None:
     """Reject malformed :class:`IngestInput` early with a clear error."""
-    if inp.kind == "text":
-        if inp.text is None:
-            raise ValueError("ingest_input.kind='text' requires text=...")
-        if inp.url is not None or inp.content is not None:
-            raise ValueError("ingest_input.kind='text' must not set url or content")
-    elif inp.kind == "url":
-        if not inp.url:
-            raise ValueError("ingest_input.kind='url' requires url=...")
-        if inp.text is not None or inp.content is not None:
-            raise ValueError("ingest_input.kind='url' must not set text or content")
-    elif inp.kind == "file":
-        if inp.content is None:
-            raise ValueError("ingest_input.kind='file' requires content=...")
-        if inp.text is not None or inp.url is not None:
-            raise ValueError("ingest_input.kind='file' must not set text or url")
-    else:
+    required = _REQUIRED_FIELD_BY_KIND.get(inp.kind)
+    if required is None:
         raise ValueError(f"unknown ingest kind: {inp.kind!r}")
+    value = getattr(inp, required)
+    if value is None or (isinstance(value, str) and not value):
+        raise ValueError(f"ingest_input.kind={inp.kind!r} requires {required}=...")
+    forbidden = [f for f in ("text", "url", "content", "source_uri") if f != required]
+    extras = [f for f in forbidden if getattr(inp, f) is not None]
+    if extras:
+        raise ValueError(
+            f"ingest_input.kind={inp.kind!r} must not set {', '.join(extras)}"
+        )

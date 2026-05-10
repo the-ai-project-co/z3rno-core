@@ -40,6 +40,7 @@ from z3rno_core.multimodal.base import (
     MultimodalTimeoutError,
 )
 from z3rno_core.multimodal.litellm import LiteLLMMultimodalProvider
+from z3rno_core.multimodal.local import LocalMultimodalProvider
 from z3rno_core.multimodal.stub import StubMultimodalProvider
 
 
@@ -51,7 +52,13 @@ def get_multimodal_provider(
     api_key: str | None = None,
     timeout_seconds: float = 60.0,
 ) -> MultimodalProvider:
-    """Construct a :class:`MultimodalProvider` by provider name."""
+    """Construct a :class:`MultimodalProvider` by provider name.
+
+    Phase B.2.1 adds the ``"local"`` provider — on-device CLIP +
+    Whisper. ``vision_model`` / ``audio_model`` are reinterpreted as the
+    sentence-transformers model id and the Whisper model size
+    (``tiny|base|small|medium|large``) when this provider is selected.
+    """
     if provider == "stub":
         return StubMultimodalProvider(vision_model=vision_model, audio_model=audio_model)
     if provider == "litellm":
@@ -61,6 +68,11 @@ def get_multimodal_provider(
             api_key=api_key,
             timeout_seconds=timeout_seconds,
         )
+    if provider == "local":
+        return LocalMultimodalProvider(
+            vision_model=vision_model or "clip-ViT-B-32",
+            audio_model=audio_model or "base",
+        )
     raise ValueError(f"unknown multimodal provider: {provider!r}")
 
 
@@ -68,6 +80,7 @@ __all__ = [
     "AudioTranscript",
     "ImageDescription",
     "LiteLLMMultimodalProvider",
+    "LocalMultimodalProvider",
     "MultimodalError",
     "MultimodalProvider",
     "MultimodalProviderError",

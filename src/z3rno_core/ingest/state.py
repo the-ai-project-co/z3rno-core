@@ -36,8 +36,14 @@ async def insert_ingest_job(
     content_type: str | None = None,
     filename: str | None = None,
     file_size: int | None = None,
+    status: str = "queued",
 ) -> None:
-    """Insert a fresh ``ingest_jobs`` row in ``queued`` status."""
+    """Insert a fresh ``ingest_jobs`` row.
+
+    ``status`` defaults to ``"queued"`` for the standard inline-enqueue
+    path. The Phase B.2.1 direct-to-S3 flow passes ``"awaiting_upload"``
+    so the row exists while the client PUTs bytes to the presigned URL.
+    """
     await conn.execute(
         text("""
             INSERT INTO ingest_jobs (
@@ -52,7 +58,7 @@ async def insert_ingest_job(
                 CAST(:dataset_id AS uuid),
                 CAST(:kind AS ingest_job_kind),
                 :source_uri, :content_type, :filename, :file_size,
-                'queued',
+                CAST(:status AS ingest_job_status),
                 :memory_ids, 0,
                 now(), now()
             )
@@ -67,6 +73,7 @@ async def insert_ingest_job(
             "content_type": content_type,
             "filename": filename,
             "file_size": file_size,
+            "status": status,
             "memory_ids": [],
         },
     )

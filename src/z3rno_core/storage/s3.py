@@ -22,7 +22,7 @@ from __future__ import annotations
 
 import logging
 import mimetypes
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path, PurePosixPath
 from urllib.parse import unquote, urlparse
 from uuid import UUID, uuid4
@@ -31,6 +31,7 @@ import aioboto3
 from botocore.exceptions import BotoCoreError, ClientError
 
 from z3rno_core.storage.base import (
+    PresignedUpload,
     StorageBackend,
     StorageError,
     StorageNotFoundError,
@@ -165,6 +166,61 @@ class S3StorageBackend(StorageBackend):
         except (ClientError, BotoCoreError) as exc:
             # Best-effort delete: an already-missing key is fine.
             logger.warning("s3.delete_failed", extra={"uri": source_uri, "error": str(exc)})
+
+    async def presigned_put_url(
+        self,
+        *,
+        org_id: UUID,
+        content_type: str,
+        filename: str | None = None,
+        ttl_seconds: int = 900,
+    ) -> PresignedUpload:
+        """Issue a presigned PUT URL for the client to upload directly.
+
+        The key layout matches :meth:`store_artifact` so subsequent
+        :meth:`read_artifact` calls work immediately once the client
+        completes the upload.
+        """
+        ext = _resolve_extension(content_type, filename)
+        artifact_id = uuid4()
+        now = datetime.now(UTC)
+        key_parts: list[str] = []
+        if self._prefix:
+            key_parts.append(self._prefix)
+        key_parts += [
+            str(org_id),
+            f"{now.year:04d}",
+            f"{now.month:02d}",
+            f"{artifact_id}{ext}",
+        ]
+        key = str(PurePosixPath(*key_parts))
+
+        normalized_ct = (
+            (content_type or "application/octet-stream").split(";", 1)[0].strip()
+        )
+
+        try:
+            async with self._session.client("s3", endpoint_url=self._endpoint_url) as s3:
+                upload_url = await s3.generate_presigned_url(
+                    "put_object",
+                    Params={
+                        "Bucket": self._bucket,
+                        "Key": key,
+                        "ContentType": normalized_ct,
+                    },
+                    ExpiresIn=max(60, int(ttl_seconds)),
+                    HttpMethod="PUT",
+                )
+        except (ClientError, BotoCoreError) as exc:
+            raise StorageError(f"S3 generate_presigned_url failed: {exc}") from exc
+
+        return PresignedUpload(
+            upload_url=str(upload_url),
+            source_uri=f"s3://{self._bucket}/{key}",
+            expires_at=now + timedelta(seconds=max(60, int(ttl_seconds))),
+            content_type=normalized_ct,
+            method="PUT",
+        )
 
     # ---- internals -------------------------------------------------------
 

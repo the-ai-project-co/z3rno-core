@@ -17,6 +17,8 @@ through ``STORAGE_BACKEND`` in :class:`z3rno_server.config.Settings`.
 from __future__ import annotations
 
 from z3rno_core.storage.base import (
+    PresignedUpload,
+    PresignedUrlNotSupportedError,
     StorageBackend,
     StorageError,
     StorageNotFoundError,
@@ -26,6 +28,8 @@ from z3rno_core.storage.s3 import S3StorageBackend
 
 __all__ = [
     "LocalStorageBackend",
+    "PresignedUpload",
+    "PresignedUrlNotSupportedError",
     "S3StorageBackend",
     "StorageBackend",
     "StorageError",

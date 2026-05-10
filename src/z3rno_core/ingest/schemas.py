@@ -1,10 +1,14 @@
-"""Schemas for the ingest pipeline (Phase B.1).
+"""Schemas for the ingest pipeline.
 
-Three input shapes feed the Forge:
+Four input shapes feed the Forge:
 
-  * **text** — a raw text body (already a string)
-  * **url**  — an HTTP(S) URL we'll fetch, normalize, and load
-  * **file** — bytes uploaded by the client, with a content_type + filename hint
+  * **text**   — a raw text body (already a string)               (Phase B.1)
+  * **url**    — an HTTP(S) URL we'll fetch, normalize, and load  (Phase B.1)
+  * **file**   — bytes uploaded by the client, with a content_type
+                  + filename hint                                  (Phase B.1)
+  * **s3_uri** — an artifact already uploaded to the storage
+                  backend out-of-band (Phase B.2.1 direct-to-S3 flow);
+                  the worker reads bytes via ``StorageBackend.read_artifact``
 
 These are encoded as :class:`IngestInput` so downstream worker / API code
 flow them around as a single typed value. :class:`IngestOptions` carries
@@ -18,16 +22,16 @@ from datetime import datetime
 from typing import Literal
 from uuid import UUID
 
-IngestKind = Literal["text", "url", "file"]
+IngestKind = Literal["text", "url", "file", "s3_uri"]
 
 
 @dataclass(frozen=True)
 class IngestInput:
-    """One of the three input shapes the IngestPipeline accepts.
+    """One of the four input shapes the IngestPipeline accepts.
 
-    Exactly one of ``text`` / ``url`` / ``content`` must be populated,
-    matching the ``kind`` discriminator. The :class:`IngestPipeline`
-    validates this on entry.
+    Exactly one of ``text`` / ``url`` / ``content`` / ``source_uri``
+    must be populated, matching the ``kind`` discriminator. The
+    :class:`IngestPipeline` validates this on entry.
     """
 
     kind: IngestKind
@@ -36,6 +40,9 @@ class IngestInput:
     content: bytes | None = None
     filename: str | None = None
     content_type: str | None = None
+    # Used when ``kind == "s3_uri"`` — the storage URI of the
+    # client-uploaded artifact.
+    source_uri: str | None = None
 
 
 @dataclass(frozen=True)

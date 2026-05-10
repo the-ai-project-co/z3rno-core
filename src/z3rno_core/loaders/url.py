@@ -59,12 +59,23 @@ async def fetch_url(
     timeout_seconds: float = 15.0,
     max_bytes: int = 50 * 1024 * 1024,
     user_agent: str = "z3rno-ingest/0.4 (+https://z3rno.dev)",
+    playwright_enabled: bool = False,
+    playwright_min_chars: int = 200,
+    playwright_timeout_seconds: float = 30.0,
 ) -> FetchResult:
     """Fetch ``url`` and return its body + canonical Content-Type.
 
     Hard limits enforced here so the IngestPipeline never has to deal
     with a runaway response. Raises :class:`UrlFetchError` (a subclass
     of :class:`LoaderInputError`) on every failure mode.
+
+    Phase B.2.2 — when ``playwright_enabled=True`` and the static fetch
+    yields an HTML body whose extracted main-content text is shorter
+    than ``playwright_min_chars``, we re-render the page in headless
+    Chromium and replace the body with the resolved DOM. The fallback
+    is opt-in (defaults preserve byte-identical pre-Phase-B.2.2
+    behavior) and silently passes through if Playwright isn't
+    importable — the operator already saw the static response.
     """
     parsed = urlparse(url)
     if parsed.scheme.lower() not in {s.lower() for s in allowed_schemes}:
@@ -102,12 +113,41 @@ async def fetch_url(
         # Best-effort default for unlabeled responses.
         content_type = "application/octet-stream"
 
-    return FetchResult(
+    fetched = FetchResult(
         url=str(response.url),
         content=body,
         content_type=content_type,
         status_code=response.status_code,
     )
+
+    if (
+        playwright_enabled
+        and content_type.startswith("text/html")
+        and _extracted_text_chars(body) < max(0, playwright_min_chars)
+    ):
+        try:
+            rendered_html = await render_with_playwright(
+                fetched.url,
+                timeout_seconds=playwright_timeout_seconds,
+            )
+        except UrlFetchError:
+            logger.warning(
+                "url.playwright.fallback_failed",
+                extra={"url": fetched.url},
+            )
+            return fetched
+        rendered_bytes = rendered_html.encode("utf-8")
+        if len(rendered_bytes) > max_bytes:
+            # Honor the same response-size cap on the re-rendered DOM.
+            return fetched
+        return FetchResult(
+            url=fetched.url,
+            content=rendered_bytes,
+            content_type="text/html",
+            status_code=fetched.status_code,
+        )
+
+    return fetched
 
 
 # ---------------------------------------------------------------------------
@@ -237,6 +277,27 @@ class UrlLoader(Loader):
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+
+def _extracted_text_chars(html_bytes: bytes) -> int:
+    """Estimate the visible-text size of an HTML response.
+
+    Mirrors :meth:`UrlLoader._load_html` — drops noise tags, prefers
+    the article/main container, returns the text length. Used by the
+    Playwright auto-fallback to decide whether the static fetch
+    captured enough content. Errors return 0 so we err on the side of
+    rendering (the static fetch will still serve as the fallback if
+    Playwright itself isn't available).
+    """
+    try:
+        soup = BeautifulSoup(html_bytes, "html.parser")
+    except Exception:  # pragma: no cover — BS4 is permissive
+        return 0
+    for tag_name in _DROP_TAGS:
+        for tag in soup.find_all(tag_name):
+            tag.decompose()
+    primary = soup.find("article") or soup.find("main") or soup.body or soup
+    return len(primary.get_text(separator="\n", strip=True))
 
 
 def _empty_result(loader_name: str, filename: str | None, mime_type: str) -> LoaderResult:
