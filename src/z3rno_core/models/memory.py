@@ -291,6 +291,19 @@ class Memory(Base, OrgScopedMixin, TimestampMixin):
         nullable=True,
     )
 
+    # ------------------------------------------------------------------
+    # Phase F — denormalized provenance (Migration 025)
+    # ------------------------------------------------------------------
+    # Mirrors the most-recent ``entity_provenance`` row for this Memo
+    # plus the ``correlation_id`` of the matching audit-chain entry.
+    # NULL on every pre-Phase-F row. When
+    # ``DISTILL_PROVENANCE_REQUIRED=true`` the validator refuses to
+    # accept Memos whose distill_provenance is NULL.
+    distill_provenance: Mapped[dict[str, Any] | None] = mapped_column(
+        JSONB,
+        nullable=True,
+    )
+
     def __repr__(self) -> str:
         marker = " [DELETED]" if self.deleted_at else ""
         return f"<Memory id={self.id} type={self.memory_type.value} agent={self.agent_id}{marker}>"

@@ -79,6 +79,7 @@ async def write_distill_result(
     api_key_id: UUID | None = None,
     request_id: str | None = None,
     ontology_resolver: Any = None,
+    provenance_required: bool = False,
 ) -> WriteResult:
     """Persist a :class:`DistillResult` into Postgres + AGE + provenance + audit.
 
@@ -93,6 +94,23 @@ async def write_distill_result(
 
     # ----------------------------------------------------------------- entities
     for entity in result.entities:
+        # Phase F slice 1 — build the provenance blob *before* the
+        # store() insert so it lands in the same INSERT (the SCD-2
+        # trigger on `memories` doesn't tolerate post-write UPDATEs).
+        from z3rno_core.distill.provenance import (  # noqa: PLC0415
+            build_provenance_blob,
+        )
+
+        provenance_blob = build_provenance_blob(
+            source_memory_id=source_memory_id,
+            model=result.model,
+            prompt_hash=prompt_hash,
+            distill_job_id=distill_job_id,
+            chunk_index=result.chunk_index,
+            char_start=result.char_start,
+            char_end=result.char_end,
+        )
+
         memo_id = await _write_entity(
             conn,
             entity=entity,
@@ -103,6 +121,7 @@ async def write_distill_result(
             embedding_provider=embedding_provider,
             api_key_id=api_key_id,
             request_id=request_id,
+            distill_provenance=provenance_blob,
         )
         memos_written += 1
         name_to_id[(entity.name.lower(), entity.type.lower())] = memo_id
@@ -132,6 +151,23 @@ async def write_distill_result(
             char_end=result.char_end,
         )
         provenance_written += 1
+
+        # Phase F slice 1 — enqueue the matching 'distill' audit-chain
+        # entry. The Memo row already carries provenance_blob inline
+        # (passed through store()); this writes the audit-log half.
+        await _enqueue_distill_audit(
+            conn,
+            org_id=org_id,
+            memo_id=memo_id,
+            agent_id=agent_id,
+            blob=provenance_blob,
+            model=result.model,
+            prompt_hash=prompt_hash,
+            chunk_index=result.chunk_index,
+            api_key_id=api_key_id,
+            request_id=request_id,
+            required=provenance_required,
+        )
 
         await _safe_age_node(conn, memo_id, org_id, agent_id, entity.name)
 
@@ -258,6 +294,7 @@ async def _write_entity(
     embedding_provider: EmbeddingProvider | None,
     api_key_id: UUID | None,
     request_id: str | None,
+    distill_provenance: dict[str, Any] | None = None,
 ) -> UUID:
     content = _format_entity_content(entity)
     metadata = {
@@ -280,6 +317,7 @@ async def _write_entity(
         importance=min(1.0, max(0.0, entity.confidence)),
         api_key_id=api_key_id,
         request_id=request_id,
+        distill_provenance=distill_provenance,
     )
     return res.memory_id
 
@@ -374,6 +412,62 @@ async def _insert_provenance(
             "char_end": char_end,
         },
     )
+
+
+async def _enqueue_distill_audit(
+    conn: AsyncConnection,
+    *,
+    org_id: UUID,
+    memo_id: UUID,
+    agent_id: UUID,
+    blob: dict[str, Any],
+    model: str,
+    prompt_hash: str,
+    chunk_index: int | None,
+    api_key_id: UUID | None,
+    request_id: str | None,
+    required: bool,
+) -> None:
+    """Phase F slice 1: enqueue the 'distill' audit-chain entry that
+    matches the provenance blob already stamped on the Memo.
+
+    Failures are logged. When ``required=True``, any failure raises
+    :class:`ProvenanceRequiredError` and aborts the surrounding
+    transaction so the Memo never lands without a matching audit row.
+    """
+    from z3rno_core.distill.provenance import (  # noqa: PLC0415 — lazy avoids cycle
+        ProvenanceRequiredError,
+    )
+    from z3rno_core.engine.audit import enqueue_audit_entry  # noqa: PLC0415
+
+    try:
+        await enqueue_audit_entry(
+            conn,
+            org_id=org_id,
+            operation="distill",
+            agent_id=agent_id,
+            memory_id=memo_id,
+            details={
+                "correlation_id": blob["correlation_id"],
+                "source_memory_id": blob["source_memory_id"],
+                "distill_job_id": blob["distill_job_id"],
+                "model": model,
+                "prompt_hash": prompt_hash,
+                "chunk_index": chunk_index,
+            },
+            api_key_id=api_key_id,
+            request_id=request_id,
+        )
+    except Exception as exc:
+        log.warning(
+            "distill.graph_writer.audit_enqueue_failed",
+            memo_id=str(memo_id),
+            error=str(exc),
+        )
+        if required:
+            raise ProvenanceRequiredError(
+                f"failed to enqueue distill audit for memo {memo_id}: {exc}"
+            ) from exc
 
 
 # ---------------------------------------------------------------------------

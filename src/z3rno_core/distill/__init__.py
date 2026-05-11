@@ -53,6 +53,13 @@ from z3rno_core.distill.schemas import (
     Relationship,
     Triplet,
 )
+from z3rno_core.distill.provenance import (
+    ChainVerdict,
+    ProvenanceRequiredError,
+    build_provenance_blob,
+    stamp_provenance,
+    verify_chain,
+)
 from z3rno_core.distill.summarize import (
     SummaryStyle,
     rolling_summarize,
@@ -62,6 +69,7 @@ from z3rno_core.distill.summarize import (
 __all__ = [
     "SYSTEM_PROMPT",
     "USER_PROMPT_TEMPLATE",
+    "ChainVerdict",
     "DistillResult",
     "Entity",
     "LLMGateway",
@@ -71,6 +79,7 @@ __all__ = [
     "LLMTimeoutError",
     "LLMValidationError",
     "LiteLLMGateway",
+    "ProvenanceRequiredError",
     "Relationship",
     "StubLLMGateway",
     "SummaryStyle",
@@ -78,12 +87,15 @@ __all__ = [
     "WriteResult",
     "already_distilled",
     "build_extraction_prompts",
+    "build_provenance_blob",
     "extract_from_chunk",
     "extract_from_chunks",
     "get_llm_gateway",
     "insert_distill_job",
     "rolling_summarize",
+    "stamp_provenance",
     "summarize_text",
     "update_distill_job",
+    "verify_chain",
     "write_distill_result",
 ]

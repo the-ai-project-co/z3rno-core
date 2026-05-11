@@ -88,6 +88,9 @@ async def store(
     duplicate_threshold: float = 0.95,
     # Phase B.1 — dataset scoping
     dataset_id: UUID | None = None,
+    # Phase F — distill provenance stamped during INSERT to dodge the
+    # SCD-2 trigger's no-recurse guard (post-INSERT UPDATEs trip it).
+    distill_provenance: dict[str, Any] | None = None,
     # Audit context
     api_key_id: UUID | None = None,
     ip_address: str | None = None,
@@ -189,7 +192,7 @@ async def store(
                 importance_score, recall_count, last_recalled_at,
                 valid_from, valid_to, pinned, ttl_expires_at,
                 deleted_at, quarantined, anomaly_score,
-                dataset_id,
+                dataset_id, distill_provenance,
                 created_at, updated_at
             ) VALUES (
                 CAST(:id AS uuid),
@@ -205,6 +208,7 @@ async def store(
                 :now, NULL, false, :ttl_expires_at,
                 NULL, false, 0.0,
                 CAST(:dataset_id AS uuid),
+                CAST(:distill_provenance AS jsonb),
                 :now, :now
             )
         """),
@@ -222,6 +226,7 @@ async def store(
             "now": now,
             "ttl_expires_at": ttl_expires_at,
             "dataset_id": str(dataset_id) if dataset_id else None,
+            "distill_provenance": (_json_dumps(distill_provenance) if distill_provenance else None),
         },
     )
 

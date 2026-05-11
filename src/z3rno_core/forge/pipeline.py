@@ -84,6 +84,9 @@ class ForgeOptions:
     summary_style: SummaryStyle = "concise"
     include_summary: bool = True
     temperature: float = 0.0
+    # Phase F slice 1 — when True, the graph-writer aborts if it can't
+    # stamp provenance + enqueue the audit-chain entry for any Memo.
+    provenance_required: bool = False
 
 
 @dataclass
@@ -338,6 +341,7 @@ class ForgePipeline:
                 api_key_id=api_key_id,
                 request_id=request_id,
                 ontology_resolver=self._ontology_resolver,
+                provenance_required=self._options.provenance_required,
             )
 
             return self._MemoryOutcome(

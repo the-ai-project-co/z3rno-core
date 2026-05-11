@@ -56,6 +56,9 @@ class AuditOperation(StrEnum):
     UNPIN = "unpin"
     EXPORT = "export"
     GDPR_DELETE = "gdpr_delete"
+    # Phase F — every Forge-distilled Memo writes a 'distill' audit row
+    # carrying its provenance correlation id.
+    DISTILL = "distill"
 
 
 class RelationshipType(StrEnum):

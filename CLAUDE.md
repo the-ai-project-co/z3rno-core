@@ -35,7 +35,7 @@ make seed                        # Load dev seed data
 - `src/z3rno_core/refine/` — **Phase D:** RefinePipeline orchestrator (dedupe → infer → summarize → reweight → prune); `refine_jobs` state helpers; `record_feedback` + edge-weight EMA.
 - `src/z3rno_core/ontology/` — **Phase D:** OWL/TTL loader (rdflib, lazy) + OntologyResolver (exact + fuzzy via rapidfuzz). Optional `[ontology]` extra.
 - `src/z3rno_core/codegraph/` — **Phase D:** tree-sitter parser (Python + TypeScript), AST → CodeMemo/CodeEdge extractor, writer to memories + memory_relationships. Optional `[codegraph]` extra.
-- `migrations/versions/` — 24 Alembic migrations (001–024; **016** = Phase B.1 datasets/ingest_jobs; **023** = Phase D memo_type/ontology_uri columns + feedback table; **024** = refine_jobs table)
+- `migrations/versions/` — 25 Alembic migrations (001–025; **016** = Phase B.1 datasets/ingest_jobs; **023** = Phase D memo_type/ontology_uri columns + feedback table; **024** = refine_jobs table; **025** = Phase F memories.distill_provenance + 'distill' audit op)
 - `seeds/dev_seed.py` — Dev seed data (2 tenants, 500 memories, 1000 audit entries)
 - `docs/` — SCHEMA.md, MULTI_TENANCY.md, ADR-001
 - `../z3rno-process-docs/improvements/PHASE-A-IMPLEMENTATION.md` — full operator reference for the Forge pipeline
@@ -65,7 +65,7 @@ The Forge pipeline is dormant until the operator sets `DISTILL_ENABLED=true` in 
 - `ForgePipeline(gateway=..., embedding_provider=..., options=ForgeOptions(...))`
 - `await pipeline.run(engine, *, org_id, agent_id, memory_ids, job_id?)` → `ForgeRunSummary`
 
-**Provenance.** Every Memo the Forge writes carries `prompt_hash` (SHA-256 of `(system, user)` prompts), `model`, `chunk_index`, `char_start/end`. Phase F flips `DISTILL_PROVENANCE_REQUIRED=true` to enforce.
+**Provenance.** Every Memo the Forge writes carries `prompt_hash` (SHA-256 of `(system, user)` prompts), `model`, `chunk_index`, `char_start/end`. **Phase F slice 1** (Migration 025) added the denormalized `memories.distill_provenance` JSONB column + a new `distill` audit-chain operation. The blob carries a `correlation_id` that links the Memo row, the `entity_provenance` row, and the audit-log entry. Set `DISTILL_PROVENANCE_REQUIRED=true` on the server tier to abort the Forge transaction if any of those three writes fails. The `verify_chain(conn, memo_id=…)` helper in `z3rno_core.distill.provenance` walks the chain and returns a `ChainVerdict`.
 
 **AGE writes are best-effort.** Apache AGE not being loaded (testcontainer, etc.) logs a warning and skips graph mirroring; the relational state stays consistent. AGE writes are also wrapped in `conn.begin_nested()` savepoints (since v0.3.1) so a failure doesn't poison the surrounding transaction.
 

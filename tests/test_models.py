@@ -193,7 +193,8 @@ def test_audit_log_id_is_bigint_not_uuid() -> None:
 
 
 def test_audit_operation_enum_includes_extended_values() -> None:
-    """Locked decision: operation enum includes quarantine/pin/unpin/export/gdpr_delete."""
+    """Locked decision: operation enum includes quarantine/pin/unpin/export/gdpr_delete.
+    Phase F slice 1 extends with 'distill' for Forge audit-chain entries."""
     expected = {
         "store",
         "recall",
@@ -204,6 +205,7 @@ def test_audit_operation_enum_includes_extended_values() -> None:
         "unpin",
         "export",
         "gdpr_delete",
+        "distill",
     }
     actual = {member.value for member in AuditOperation}
     assert actual == expected
