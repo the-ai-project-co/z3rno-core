@@ -6,6 +6,7 @@ and edges, and to run common Cypher traversal queries.
 
 from __future__ import annotations
 
+from z3rno_core.graph.primitives import Edge, Memo, Triplet
 from z3rno_core.graph.queries import (
     find_contradictions,
     find_memory_chain,
@@ -15,6 +16,9 @@ from z3rno_core.graph.queries import (
 from z3rno_core.graph.sync import sync_memory_to_graph, sync_relationship_to_graph
 
 __all__ = [
+    "Edge",
+    "Memo",
+    "Triplet",
     "find_contradictions",
     "find_memory_chain",
     "find_related_memories",

@@ -103,6 +103,23 @@ test-aws = [
   "moto[s3]>=5.0.0",
 ]
 
+# Phase D slice 4 — ontology grounding. rdflib parses OWL/TTL ontology
+# files; rapidfuzz powers the fuzzy resolver. Both lazy-imported so the
+# package is fully optional.
+ontology = [
+  "rdflib>=7.1.0",
+  "rapidfuzz>=3.10.0",
+]
+
+# Phase D slice 5 — code-graph extraction. tree-sitter parses source
+# files; the per-language grammar wheels ship pre-built so no compiler
+# is required on the install host. Lazy-imported.
+codegraph = [
+  "tree-sitter>=0.23.0",
+  "tree-sitter-python>=0.23.0",
+  "tree-sitter-typescript>=0.23.0",
+]
+
 # Observability — optional because it adds 30+ MB of OTel deps that
 # only the production cloud needs
 observability = [
@@ -313,6 +330,16 @@ module = [
   "sentence_transformers.*",
   "whisper",
   "whisper.*",
+  "rdflib",
+  "rdflib.*",
+  "rapidfuzz",
+  "rapidfuzz.*",
+  "tree_sitter",
+  "tree_sitter.*",
+  "tree_sitter_python",
+  "tree_sitter_python.*",
+  "tree_sitter_typescript",
+  "tree_sitter_typescript.*",
 ]
 ignore_missing_imports = true
 

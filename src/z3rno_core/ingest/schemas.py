@@ -53,6 +53,10 @@ class IngestOptions:
     chunk_size: int = 1024
     chunk_overlap: int = 128
     summary_style: Literal["concise", "bullet", "abstractive"] = "concise"
+    # Phase D slice 5 — when True AND the loader returned a known code
+    # language, run the tree-sitter extractor after the text Memo is
+    # written. The codegraph optional extra must be installed.
+    codegraph_enabled: bool = False
 
 
 @dataclass
@@ -81,3 +85,6 @@ class IngestRunSummary:
     warnings: list[dict[str, Any]] = field(default_factory=list)
     started_at: datetime | None = None
     completed_at: datetime | None = None
+    # Phase D slice 5 — codegraph counters (zero unless codegraph_enabled).
+    codegraph_memos_written: int = 0
+    codegraph_edges_written: int = 0

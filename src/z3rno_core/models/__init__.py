@@ -39,6 +39,7 @@ from z3rno_core.models.enums import (
     RelationshipType,
     RetentionPolicy,
 )
+from z3rno_core.models.feedback import Feedback
 from z3rno_core.models.lifecycle_policy import LifecyclePolicy
 from z3rno_core.models.memory import EMBEDDING_DIMENSION, Memory
 from z3rno_core.models.memory_relationship import MemoryRelationship
@@ -55,6 +56,7 @@ __all__ = [
     # Base + mixins
     "Base",
     "DecayCurve",
+    "Feedback",
     "LifecyclePolicy",
     "Memory",
     "MemoryRelationship",

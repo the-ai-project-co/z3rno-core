@@ -15,6 +15,7 @@ hasn't installed an optional extra still imports cleanly.
 from z3rno_core.retrieval.strategies import (  # noqa: F401  (side-effect imports register strategies)
     ask,
     auto,
+    code,
     cypher,
     graph,
     lexical,

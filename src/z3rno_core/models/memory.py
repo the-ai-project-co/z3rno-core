@@ -90,6 +90,15 @@ class Memory(Base, OrgScopedMixin, TimestampMixin):
         ),
         # ----- GIN index on JSONB metadata -----
         Index("ix_memories_metadata", "metadata", postgresql_using="gin"),
+        # ----- Phase D: partial index on grounded ontology URIs -----
+        # Only rows with a resolver-assigned URI are indexed, so tenants
+        # that never enable the ontology resolver pay nothing.
+        Index(
+            "ix_memories_org_ontology_uri",
+            "org_id",
+            "ontology_uri",
+            postgresql_where=text("ontology_uri IS NOT NULL"),
+        ),
         # ----- HNSW vector index for similarity search -----
         # pgvector 0.8+ HNSW with cosine distance. In production, create with
         # CONCURRENTLY via Alembic migration to avoid locking the table.
@@ -261,6 +270,25 @@ class Memory(Base, OrgScopedMixin, TimestampMixin):
         nullable=False,
         default=0.0,
         server_default="0.0",
+    )
+
+    # ------------------------------------------------------------------
+    # Phase D — graph-node typing + ontology grounding (Migration 023)
+    # ------------------------------------------------------------------
+    # ``memo_type`` is the graph-node subtype — distinct from
+    # ``memory_type`` (the lifecycle enum: EPISODIC / SEMANTIC / …).
+    # Free-form because ontologies are open-world. Populated by the
+    # ``refine`` pipeline (slice 3) and the ontology resolver (slice 4).
+    memo_type: Mapped[str | None] = mapped_column(
+        Text,
+        nullable=True,
+    )
+
+    # Canonical entity URI when the resolver maps this Memo to an OWL
+    # concept. NULL until grounded. Partial-indexed.
+    ontology_uri: Mapped[str | None] = mapped_column(
+        Text,
+        nullable=True,
     )
 
     def __repr__(self) -> str:

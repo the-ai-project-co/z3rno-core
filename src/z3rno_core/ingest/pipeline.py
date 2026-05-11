@@ -236,6 +236,44 @@ class IngestPipeline:
                     request_id=request_id,
                 )
             summary.memory_ids = [store_res.memory_id]
+
+            # Phase D slice 5 — optional codegraph extraction. Runs after
+            # the text Memo is stored so the call-graph Memos share the
+            # ingest_job lineage. Failures are non-fatal — the text Memo
+            # is already persisted.
+            if opts.codegraph_enabled:
+                lang = loader_result.metadata.get("language")
+                if isinstance(lang, str) and lang.lower() in ("python", "typescript"):
+                    try:
+                        from z3rno_core.codegraph import (  # noqa: PLC0415
+                            extract,
+                            parse_source,
+                            write_extraction,
+                        )
+
+                        parsed = parse_source(loader_result.text, language=lang.lower())
+                        module_name = (
+                            materialized.filename or materialized.source_uri or f"ingest-{job_id}"
+                        )
+                        extraction = extract(parsed, module_name=str(module_name))
+                        async with engine.begin() as conn:
+                            await self._set_rls(conn, org_id)
+                            cg_result = await write_extraction(
+                                conn,
+                                org_id=org_id,
+                                agent_id=agent_id,
+                                extraction=extraction,
+                                dataset_id=dataset_id,
+                            )
+                        summary.codegraph_memos_written = cg_result.memos_written
+                        summary.codegraph_edges_written = cg_result.edges_written
+                    except Exception as cg_exc:
+                        log.warning(
+                            "ingest.run.codegraph_failed",
+                            job_id=str(job_id),
+                            error=str(cg_exc),
+                        )
+                        summary.warnings.append({"code": "codegraph_failed", "detail": str(cg_exc)})
         except Exception as exc:
             log.exception("ingest.run.failed", job_id=str(job_id))
             summary.error = str(exc)
@@ -420,6 +458,4 @@ def _validate_input(inp: IngestInput) -> None:
     forbidden = [f for f in ("text", "url", "content", "source_uri") if f != required]
     extras = [f for f in forbidden if getattr(inp, f) is not None]
     if extras:
-        raise ValueError(
-            f"ingest_input.kind={inp.kind!r} must not set {', '.join(extras)}"
-        )
+        raise ValueError(f"ingest_input.kind={inp.kind!r} must not set {', '.join(extras)}")

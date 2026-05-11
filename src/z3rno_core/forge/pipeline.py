@@ -123,10 +123,15 @@ class ForgePipeline:
         gateway: LLMGateway,
         embedding_provider: EmbeddingProvider | None = None,
         options: ForgeOptions | None = None,
+        ontology_resolver: object | None = None,
     ) -> None:
         self._gateway = gateway
         self._embedding_provider = embedding_provider
         self._options = options or ForgeOptions()
+        # Phase D slice 4 — optional ontology resolver. Threaded through
+        # to write_distill_result so each entity Memo is grounded as it
+        # lands. None ⇒ skip grounding (default).
+        self._ontology_resolver = ontology_resolver
 
     @property
     def options(self) -> ForgeOptions:
@@ -332,6 +337,7 @@ class ForgePipeline:
                 embedding_provider=self._embedding_provider,
                 api_key_id=api_key_id,
                 request_id=request_id,
+                ontology_resolver=self._ontology_resolver,
             )
 
             return self._MemoryOutcome(

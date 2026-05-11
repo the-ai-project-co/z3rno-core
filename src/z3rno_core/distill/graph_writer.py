@@ -27,7 +27,7 @@ records all of these but does not yet enforce.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 from uuid import UUID, uuid4
 
 import structlog
@@ -78,6 +78,7 @@ async def write_distill_result(
     embedding_provider: EmbeddingProvider | None = None,
     api_key_id: UUID | None = None,
     request_id: str | None = None,
+    ontology_resolver: Any = None,
 ) -> WriteResult:
     """Persist a :class:`DistillResult` into Postgres + AGE + provenance + audit.
 
@@ -105,6 +106,18 @@ async def write_distill_result(
         )
         memos_written += 1
         name_to_id[(entity.name.lower(), entity.type.lower())] = memo_id
+
+        # Phase D slice 4 — ontology grounding. Resolver is optional;
+        # when None we leave memo_type / ontology_uri NULL and the Memo
+        # behaves exactly as it did pre-Phase-D.
+        if ontology_resolver is not None:
+            await _apply_ontology_grounding(
+                conn,
+                memo_id=memo_id,
+                entity_name=entity.name,
+                entity_type=entity.type,
+                resolver=ontology_resolver,
+            )
 
         await _insert_provenance(
             conn,
@@ -179,6 +192,53 @@ async def write_distill_result(
         edges_written=edges_written,
         provenance_written=provenance_written,
         summary_memo_id=summary_memo_id,
+    )
+
+
+async def _apply_ontology_grounding(
+    conn: AsyncConnection,
+    *,
+    memo_id: UUID,
+    entity_name: str,
+    entity_type: str,
+    resolver: Any,
+) -> None:
+    """Resolve ``entity_name`` against the ontology and stamp memo_type + ontology_uri.
+
+    Failures are logged and swallowed — grounding is best-effort, the
+    Memo row already exists and the distill flow continues.
+    """
+    try:
+        match = resolver.resolve(entity_name, type_hint=entity_type)
+    except Exception as exc:
+        log.warning(
+            "distill.graph_writer.ontology_resolve_failed",
+            memo_id=str(memo_id),
+            entity=entity_name,
+            error=str(exc),
+        )
+        return
+
+    # Always set memo_type (even when resolver returned None) — it's the
+    # cheap signal that lets Phase D dedupe group by (memo_type, name).
+    memo_type = entity_type.upper() if entity_type else None
+    ontology_uri = match.uri if match else None
+    if memo_type is None and ontology_uri is None:
+        return
+
+    await conn.execute(
+        text("""
+            UPDATE public.memories
+            SET memo_type = COALESCE(:memo_type, memo_type),
+                ontology_uri = COALESCE(:ontology_uri, ontology_uri),
+                updated_at = now()
+            WHERE id = CAST(:memo_id AS uuid)
+        """),
+        {
+            "memo_type": memo_type,
+            "ontology_uri": ontology_uri,
+            "memo_id": str(memo_id),
+        },
     )
 
 

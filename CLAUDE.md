@@ -32,12 +32,17 @@ make seed                        # Load dev seed data
 - `src/z3rno_core/ingest/` — **Phase B.1:** IngestPipeline orchestrator (parse → dedupe → load → store → optional auto-distill); `ingest_jobs` state helpers; one Memo per ingest in B.1.
 - `src/z3rno_core/multimodal/` — **Phase B.2:** MultimodalProvider ABC + LiteLLMMultimodalProvider (vision via gpt-4o; audio via Whisper) + StubMultimodalProvider for tests.
 - `src/z3rno_core/scrapers/` — **Phase B.2:** SearchProvider ABC + TavilyScraper for Tavily-driven web discovery.
-- `migrations/versions/` — 16 Alembic migrations (001–016; **016** = datasets + ingest_jobs + dataset_id columns, RLS, indexes, downgradable)
+- `src/z3rno_core/refine/` — **Phase D:** RefinePipeline orchestrator (dedupe → infer → summarize → reweight → prune); `refine_jobs` state helpers; `record_feedback` + edge-weight EMA.
+- `src/z3rno_core/ontology/` — **Phase D:** OWL/TTL loader (rdflib, lazy) + OntologyResolver (exact + fuzzy via rapidfuzz). Optional `[ontology]` extra.
+- `src/z3rno_core/codegraph/` — **Phase D:** tree-sitter parser (Python + TypeScript), AST → CodeMemo/CodeEdge extractor, writer to memories + memory_relationships. Optional `[codegraph]` extra.
+- `migrations/versions/` — 24 Alembic migrations (001–024; **016** = Phase B.1 datasets/ingest_jobs; **023** = Phase D memo_type/ontology_uri columns + feedback table; **024** = refine_jobs table)
 - `seeds/dev_seed.py` — Dev seed data (2 tenants, 500 memories, 1000 audit entries)
 - `docs/` — SCHEMA.md, MULTI_TENANCY.md, ADR-001
 - `../z3rno-process-docs/improvements/PHASE-A-IMPLEMENTATION.md` — full operator reference for the Forge pipeline
 - `../z3rno-process-docs/improvements/PHASE-B1-IMPLEMENTATION.md` — full operator reference for the Ingestion surface
 - `../z3rno-process-docs/improvements/PHASE-B2-IMPLEMENTATION.md` — full operator reference for Multimodal + Search + S3 + Playwright
+- `../z3rno-process-docs/improvements/PHASE-C-IMPLEMENTATION.md` — full operator reference for the retrieval strategies
+- `../z3rno-process-docs/improvements/PHASE-D-IMPLEMENTATION.md` — full operator reference for refine + ontology + codegraph
 
 ## Phase A — Forge (opt-in)
 
@@ -115,6 +120,44 @@ Four independently-gated capabilities. Each is dormant by default:
 - `render_with_playwright(url)` — lazy-imports Playwright, raises clear error if extra not installed
 - `sniff_mime_type()` extended for image/* + audio/* magic bytes
 
+## Phase D — Graph Intelligence (opt-in)
+
+Refine + ontology grounding + code-graph extraction. All capabilities are dormant by default — each one flips on independently. Migration 023 + 024 ship the storage; everything else stays inert until flags are flipped server-side.
+
+**Z3rno lexicon**: **refine** (verb), **Memo** (typed graph node — Pydantic projection in `z3rno_core.graph.primitives`, distinct from the SA `Memory` row), **CODE** (Phase D retrieval strategy).
+
+**Public API (z3rno_core.refine):**
+- `RefinePipeline(options=RefineOptions(...), gateway=LLMGateway | None)` — orchestrates dedupe → infer → summarize → reweight → prune.
+- `await pipeline.run(conn, *, org_id, dataset_id?, job_id?)` → `RefineRunSummary` (counters + per-stage results).
+- `record_feedback(conn, *, org_id, agent_id, signal, memory_id?, edge_id?, reason?)` → UUID. Exactly-one-of `memory_id`/`edge_id` enforced at Python and DB CHECK layers.
+- `run_dedupe / run_infer / run_summarize / run_reweight / run_prune` — individual stage callables for tests + ad-hoc use.
+- State helpers: `insert_refine_job`, `update_refine_job` (mirror ingest/distill state helpers).
+
+**Public API (z3rno_core.ontology):** — optional, requires `[ontology]` extra (rdflib + rapidfuzz)
+- `OntologyResolver(index, strategy="exact|fuzzy", fuzzy_threshold=0.80)`
+- `load_ontology(path)` → `OntologyIndex` (lru_cached per process).
+- `OntologyEntry`, `ResolveMatch`.
+
+**Public API (z3rno_core.codegraph):** — optional, requires `[codegraph]` extra (tree-sitter + grammars)
+- `parse_source(src, *, language="python|typescript")` → `ParsedSource`.
+- `extract(parsed, *, module_name)` → `ExtractResult` of `CodeMemo` (MODULE/CLASS/FUNCTION/IMPORT) + `CodeEdge` (DEFINES/IMPORTS/CALLS/INHERITS).
+- `await write_extraction(conn, *, org_id, agent_id, extraction, dataset_id?)` → `CodegraphWriteResult`. Edges land in `memory_relationships` with `metadata.codegraph_kind` discriminator (no enum migration needed).
+
+**Public API additions (z3rno_core.graph):**
+- `Memo`, `Edge` — frozen Pydantic graph-node projection (distinct from SA `Memory` row).
+- `Triplet` — re-exported from `z3rno_core.distill`.
+
+**Forge integration.** `ForgePipeline(..., ontology_resolver=resolver)` threads the resolver into `write_distill_result` so every distilled entity Memo gets its `memo_type` + `ontology_uri` populated transactionally. Resolver failures log + skip; the Memo is preserved.
+
+**Ingest integration.** `IngestOptions(codegraph_enabled=True)` runs the tree-sitter extractor after the text Memo lands, when the loader's `metadata.language` is `python` / `typescript`. Failures attach as `codegraph_failed` warnings; the text Memo is preserved.
+
+**Retrieval integration.** `CODE` strategy joins Phase C's nine. Recursive-CTE one-hop neighborhood over `memory_relationships` filtered to codegraph edges — no LLM, no embedding, no AGE required.
+
+**Feedback / refine lifecycle:**
+- Feedback rows are **never deleted by reweight** — every cycle recomputes from scratch. Idempotent.
+- Dedupe uses SCD-2 supersede (`valid_to = now()` + `deleted_at = now()`), never hard-merge. Lineage stamped on the primary's `metadata.refine.merged_from`.
+- Summarize cluster cache lives in the SUMMARY Memo's `metadata.refine.cluster_hash`; reruns skip already-summarized clusters.
+
 ## Key Conventions
 
 - Python 3.11+, src/ layout, hatchling build backend
@@ -138,8 +181,8 @@ Four independently-gated capabilities. Each is dormant by default:
 
 ## Testing
 
-- Unit tests: `uv run pytest` (no DB needed, ~470 tests)
-- Integration tests: `DATABASE_URL=postgresql+psycopg://... uv run pytest -m integration` (~13 tests run against testcontainer; 7 Phase A + 6 Phase B.1)
-- Total: **579 tests** in z3rno-core as of v0.4.0
+- Unit tests: `uv run pytest` (no DB needed, **882 passed / 3 skipped** as of Phase D / v0.16.0)
+- Integration tests: `DATABASE_URL=postgresql+psycopg://... uv run pytest -m integration` (~21 tests against testcontainer; 7 Phase A + 6 Phase B.1 + 8 Phase D schema)
+- Optional extras for full test coverage: `uv pip install rdflib rapidfuzz tree-sitter tree-sitter-python tree-sitter-typescript` (Phase D slices 4 + 5)
 - Coverage threshold: 95% (unit tests with mocked DB connections cover async engine paths)
 - Seeds and lifecycle tests excluded from per-file ignores (S608, PLR2004, etc.)
