@@ -30,8 +30,10 @@ chained row landing in ``audit_log``.
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
+from collections.abc import Callable, Coroutine
 from datetime import datetime
 from typing import Any
 from uuid import UUID
@@ -340,3 +342,73 @@ async def list_orgs_with_pending(
         {"limit": limit},
     )
     return [UUID(str(row[0])) for row in result.fetchall()]
+
+
+# ---------------------------------------------------------------------------
+# v0.20.2 — NOTIFY/LISTEN drain trigger
+# ---------------------------------------------------------------------------
+
+
+AUDIT_NOTIFY_CHANNEL = "z3rno_audit_pending"
+
+
+async def listen_for_audit_pending(
+    dsn: str,
+    *,
+    on_notify: Callable[[str | None], Coroutine[Any, Any, None]],
+    stop_event: asyncio.Event | None = None,
+) -> None:
+    """Long-lived listener for ``NOTIFY z3rno_audit_pending``.
+
+    Opens an asyncpg connection, issues ``LISTEN``, and invokes
+    ``on_notify(org_id_or_none)`` each time a notification arrives.
+    Caller is expected to ``celery_app.send_task("z3rno.audit_drain")``
+    from inside the callback — this module deliberately doesn't import
+    Celery so the listener stays runnable in unit tests without a
+    broker.
+
+    Migration 032 installs the trigger that emits these notifications
+    on every ``INSERT INTO audit_log_pending``. The legacy periodic
+    poll stays in place as a fallback (longer interval) so a stuck
+    listener can't grow the queue unbounded.
+
+    Loop semantics:
+      * The function returns when ``stop_event`` (if supplied) is set.
+        Without an event, it runs indefinitely.
+      * Connection errors raise back to the caller — operators
+        typically restart the listener pod / Celery worker.
+    """
+    try:
+        import asyncpg  # type: ignore[import-untyped]
+    except ImportError as exc:
+        raise ImportError(
+            "asyncpg is required for the LISTEN-based audit drain. "
+            "It's already a runtime dep of z3rno-core but make sure "
+            "the listener process can import it."
+        ) from exc
+
+    # Strip the SQLAlchemy "+asyncpg" prefix asyncpg.connect expects raw libpq DSN.
+    raw_dsn = dsn.replace("postgresql+asyncpg://", "postgresql://")
+
+    conn = await asyncpg.connect(raw_dsn)
+    try:
+        # asyncpg's listener gives us a callback on every NOTIFY. The
+        # callback is sync — schedule the user's async callback on the
+        # event loop.
+        loop = asyncio.get_running_loop()
+        # Strong refs on dispatched tasks so they aren't GC'd mid-flight.
+        in_flight: set[asyncio.Task[None]] = set()
+
+        def _dispatch(_conn: Any, _pid: int, _channel: str, payload: str) -> None:
+            org_id = payload or None
+            task = loop.create_task(on_notify(org_id))
+            in_flight.add(task)
+            task.add_done_callback(in_flight.discard)
+
+        await conn.add_listener(AUDIT_NOTIFY_CHANNEL, _dispatch)
+        # Idle: yield until stop_event fires or the connection dies.
+        if stop_event is None:
+            stop_event = asyncio.Event()
+        await stop_event.wait()
+    finally:
+        await conn.close()
