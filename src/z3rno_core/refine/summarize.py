@@ -49,6 +49,91 @@ def _cluster_hash(member_ids: list[UUID]) -> str:
     return hashlib.sha256(joined.encode()).hexdigest()
 
 
+async def _cluster_memos_by_components(
+    conn: AsyncConnection,
+    org_id: UUID,
+    dataset_id: UUID | None,
+    max_clusters: int,
+) -> list[list[UUID]]:
+    """v0.19.5 — connected-component clustering over ``memory_relationships``.
+
+    Finds graph connected components via a recursive union-find on
+    ``memory_relationships``. Each component (≥ ``_MIN_CLUSTER_SIZE``)
+    becomes one cluster. The result is the AGE community equivalent
+    expressed in plain SQL — no AGE extension required at refine time.
+
+    Isolated Memos (no edges) are skipped intentionally — the
+    summarize stage is for grouping *related* knowledge, not lone
+    facts.
+    """
+    where_dataset = (
+        "AND m.dataset_id = CAST(:dataset_id AS uuid)"
+        if dataset_id
+        else "AND m.dataset_id IS NULL"
+    )
+    params: dict[str, object] = {
+        "org_id": str(org_id),
+        "limit": max_clusters * 20,
+        "min_size": _MIN_CLUSTER_SIZE,
+    }
+    if dataset_id:
+        params["dataset_id"] = str(dataset_id)
+
+    # Recursive walk: seed = each Memo; step = follow any relationship.
+    # The lowest-ID member of each component is its canonical "root".
+    rows = (
+        await conn.execute(
+            text(f"""
+                WITH RECURSIVE
+                    seeds AS (
+                        SELECT m.id
+                        FROM public.memories m
+                        WHERE m.org_id = CAST(:org_id AS uuid)
+                          AND m.valid_to IS NULL
+                          AND m.deleted_at IS NULL
+                          AND m.memo_type IS NOT NULL
+                          AND m.memo_type != 'SUMMARY'
+                          {where_dataset}
+                        LIMIT :limit
+                    ),
+                    walk(memo_id, root_id) AS (
+                        SELECT id, id FROM seeds
+                        UNION
+                        SELECT
+                            CASE WHEN r.source_memory_id = w.memo_id
+                                 THEN r.target_memory_id
+                                 ELSE r.source_memory_id
+                            END,
+                            LEAST(w.root_id,
+                                  CASE WHEN r.source_memory_id = w.memo_id
+                                       THEN r.target_memory_id
+                                       ELSE r.source_memory_id
+                                  END)
+                        FROM walk w
+                        JOIN public.memory_relationships r
+                          ON r.source_memory_id = w.memo_id
+                          OR r.target_memory_id = w.memo_id
+                        WHERE r.org_id = CAST(:org_id AS uuid)
+                    )
+                SELECT (SELECT MIN(root_id) FROM walk w2 WHERE w2.memo_id = w.memo_id) AS comp,
+                       w.memo_id
+                FROM walk w
+                GROUP BY w.memo_id
+            """),  # noqa: S608 — where_dataset interpolated from constants
+            params,
+        )
+    ).fetchall()
+
+    by_root: dict[UUID, list[UUID]] = {}
+    for comp, mid in rows:
+        by_root.setdefault(comp, []).append(mid)
+
+    clusters = [v for v in by_root.values() if len(v) >= _MIN_CLUSTER_SIZE]
+    # Largest first — most likely to produce a useful summary.
+    clusters.sort(key=len, reverse=True)
+    return clusters[:max_clusters]
+
+
 async def _cluster_memos(
     conn: AsyncConnection,
     org_id: UUID,
@@ -57,8 +142,9 @@ async def _cluster_memos(
 ) -> list[list[UUID]]:
     """Cluster currently-valid Memos by the ``memo_type`` they share.
 
-    A simple grouping good enough for slice 4 acceptance. Slice 5
-    upgrades to AGE community detection when codegraph lands.
+    Coarse grouping — fast and predictable. Operators who want
+    graph-aware clustering can flip ``RefineOptions.cluster_strategy
+    = "connected_components"`` to switch to the recursive-CTE walk.
     """
     where_dataset = (
         "AND dataset_id = CAST(:dataset_id AS uuid)" if dataset_id else "AND dataset_id IS NULL"
@@ -203,11 +289,18 @@ async def run_summarize(
     gateway: LLMGateway | None,
     dataset_id: UUID | None = None,
     max_clusters: int = 10,
+    cluster_strategy: str = "memo_type",
 ) -> SummarizeResult:
     if gateway is None:
         return SummarizeResult(0, 0, 0)
 
-    clusters = await _cluster_memos(conn, org_id, dataset_id, max_clusters)
+    # v0.19.5 — graph-aware clustering when operators opt in.
+    if cluster_strategy == "connected_components":
+        clusters = await _cluster_memos_by_components(
+            conn, org_id, dataset_id, max_clusters
+        )
+    else:
+        clusters = await _cluster_memos(conn, org_id, dataset_id, max_clusters)
     summaries_written = 0
     cached_skips = 0
 

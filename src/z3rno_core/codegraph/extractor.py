@@ -109,11 +109,40 @@ _TS_NODE_TYPES = {
     "class": ("class_declaration", "interface_declaration"),
     "function": ("function_declaration", "method_definition", "arrow_function"),
     "import_stmt": "import_statement",
-    "call": "call_expression",
+    # v0.19.5 — ``new X()`` parses as ``new_expression``, distinct from
+    # ``call_expression``. Both surface CALLS edges so constructor
+    # invocations no longer disappear from the call graph.
+    "call": ("call_expression", "new_expression"),
     "identifier": ("identifier", "type_identifier", "property_identifier"),
     "name_field": "name",
     "argument_list": "arguments",
     "block": ("statement_block", "class_body"),
+}
+
+# v0.19.5 — Go.
+_GO_NODE_TYPES = {
+    "module": "source_file",
+    "class": ("type_declaration",),
+    "function": ("function_declaration", "method_declaration"),
+    "import_stmt": ("import_declaration", "import_spec"),
+    "call": "call_expression",
+    "identifier": ("identifier", "type_identifier", "field_identifier"),
+    "name_field": "name",
+    "argument_list": "argument_list",
+    "block": "block",
+}
+
+# v0.19.5 — Rust.
+_RUST_NODE_TYPES = {
+    "module": "source_file",
+    "class": ("struct_item", "enum_item", "trait_item", "impl_item"),
+    "function": ("function_item", "function_signature_item"),
+    "import_stmt": ("use_declaration",),
+    "call": ("call_expression", "macro_invocation"),
+    "identifier": ("identifier", "type_identifier", "field_identifier"),
+    "name_field": "name",
+    "argument_list": "arguments",
+    "block": "block",
 }
 
 
@@ -122,6 +151,10 @@ def _types_for(language: str) -> dict[str, Any]:
         return _PYTHON_NODE_TYPES
     if language == "typescript":
         return _TS_NODE_TYPES
+    if language == "go":
+        return _GO_NODE_TYPES
+    if language == "rust":
+        return _RUST_NODE_TYPES
     raise ValueError(f"no node-type table for language: {language}")
 
 

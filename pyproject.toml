@@ -118,6 +118,9 @@ codegraph = [
   "tree-sitter>=0.23.0",
   "tree-sitter-python>=0.23.0",
   "tree-sitter-typescript>=0.23.0",
+  # v0.19.5 — Go + Rust grammar wheels.
+  "tree-sitter-go>=0.23.0",
+  "tree-sitter-rust>=0.23.0",
 ]
 
 # Observability — optional because it adds 30+ MB of OTel deps that

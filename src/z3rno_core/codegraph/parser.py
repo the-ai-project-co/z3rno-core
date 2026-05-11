@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from functools import lru_cache
 from typing import Any
 
-SUPPORTED_LANGUAGES: tuple[str, ...] = ("python", "typescript")
+SUPPORTED_LANGUAGES: tuple[str, ...] = ("python", "typescript", "go", "rust")
 
 
 @dataclass(frozen=True)
@@ -57,6 +57,14 @@ def _load_language(language: str) -> Any:
         # The TypeScript grammar wheel exposes both TS and TSX variants;
         # we use the TS one — TSX inherits its surface forms.
         return Language(ts_ts.language_typescript())
+    if language == "go":
+        import tree_sitter_go as ts_go  # type: ignore[import-not-found]  # noqa: PLC0415
+
+        return Language(ts_go.language())
+    if language == "rust":
+        import tree_sitter_rust as ts_rust  # type: ignore[import-not-found]  # noqa: PLC0415
+
+        return Language(ts_rust.language())
 
     # _ensure_language already gated against this — kept for completeness.
     raise ValueError(f"unsupported language: {language}")

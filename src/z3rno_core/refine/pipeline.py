@@ -61,6 +61,10 @@ class RefineOptions:
     infer_enabled: bool = False
     summarize_enabled: bool = False
     infer_max_candidates: int = 50
+    # v0.19.5 — clustering strategy for the summarize stage:
+    #   "memo_type"            — default; group-by memo_type column.
+    #   "connected_components" — graph-aware walk over memory_relationships.
+    cluster_strategy: str = "memo_type"
     # v0.19.2 — server-default budget caps. Pre-flighted at run start;
     # tenant-row override merged via ``resolve_budgets``. Empty (default)
     # means no enforcement.
@@ -187,6 +191,7 @@ class RefinePipeline:
                     org_id=org_id,
                     gateway=self._gateway,
                     dataset_id=dataset_id,
+                    cluster_strategy=self.options.cluster_strategy,
                 )
                 summary.summarize = summarize_result
                 stage_meta["summarize"] = {
