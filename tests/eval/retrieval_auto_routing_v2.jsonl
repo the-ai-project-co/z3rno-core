@@ -1,0 +1,50 @@
+{"query": "Show me everything you know about Acme Corp", "expected": "GRAPH", "reason": "entity-centric expansion via neighbors"}
+{"query": "Who reports to Sarah?", "expected": "GRAPH", "reason": "one-hop org graph"}
+{"query": "Which projects depend on the auth service?", "expected": "GRAPH", "reason": "one-hop dependency walk"}
+{"query": "Trace the chain of approvals on the Q3 budget", "expected": "TRACE", "reason": "multi-step lineage"}
+{"query": "How did we end up using PostgreSQL?", "expected": "TRACE", "reason": "decision-history chain"}
+{"query": "Walk me through every step that led to the rebrand", "expected": "TRACE", "reason": "chronological causal chain"}
+{"query": "Who said the Q4 numbers will slip?", "expected": "TRIPLET", "reason": "subject-predicate-object lookup"}
+{"query": "What does Adam own?", "expected": "TRIPLET", "reason": "ownership predicate"}
+{"query": "List companies that Sarah has invested in", "expected": "TRIPLET", "reason": "relation-typed walk from entity"}
+{"query": "Find notes that mention 'OKR' and 'roadmap' together", "expected": "LEXICAL", "reason": "explicit phrase conjunction"}
+{"query": "Search exactly for 'CVE-2025-12345'", "expected": "LEXICAL", "reason": "literal token match required"}
+{"query": "Anything with 'hotfix' in it", "expected": "LEXICAL", "reason": "explicit substring match"}
+{"query": "What was the state of the auth subsystem in March 2025?", "expected": "TEMPORAL", "reason": "point-in-time snapshot"}
+{"query": "Show me what the project plan looked like before the Q2 reorg", "expected": "TEMPORAL", "reason": "as-of historical snapshot"}
+{"query": "What changed between January and March about onboarding?", "expected": "TEMPORAL", "reason": "diff across two timestamps"}
+{"query": "Why does the recall counter sometimes go down?", "expected": "ASK", "reason": "open question that needs reasoning over Memos"}
+{"query": "Summarize the user's stance on remote work", "expected": "ASK", "reason": "synthesize across multiple memories"}
+{"query": "Is the API rate limit working as expected?", "expected": "ASK", "reason": "judgment requiring multi-source reasoning"}
+{"query": "Run: MATCH (n:Person) RETURN n LIMIT 10", "expected": "CYPHER", "reason": "literal Cypher passed by power user"}
+{"query": "Cypher: MATCH (a)-[:KNOWS]-(b) RETURN a, b", "expected": "CYPHER", "reason": "prefixed Cypher escape hatch"}
+{"query": "Show me which functions call `authenticate_user`", "expected": "CODE", "reason": "code-graph callers query"}
+{"query": "What imports does the billing module pull in?", "expected": "CODE", "reason": "code-graph imports"}
+{"query": "List every subclass of BaseEmbeddingProvider", "expected": "CODE", "reason": "inheritance walk in code graph"}
+{"query": "Who works at the place Sarah used to work?", "expected": "GRAPH", "reason": "two-hop org graph with temporal flavor"}
+{"query": "Compare the launch playbook from 2024 and 2025", "expected": "TEMPORAL", "reason": "two-timestamp diff"}
+{"query": "Yesterday I mentioned a name like 'Dr. Voss' — find that", "expected": "LEXICAL", "reason": "specific proper-noun fragment"}
+{"query": "Why does our retention curve drop at week 6?", "expected": "ASK", "reason": "analytical synthesis"}
+{"query": "What memories are most relevant to today's standup?", "expected": "VECTOR", "reason": "semantic similarity to a context"}
+{"query": "Surface anything about 'pricing experiments' I might have forgotten", "expected": "VECTOR", "reason": "open-ended fuzzy recall"}
+{"query": "Find me notes that feel similar to 'I am worried about Q4'", "expected": "VECTOR", "reason": "vibe/similarity"}
+{"query": "Show evolution of the user's stance on async meetings over the last year", "expected": "TEMPORAL", "reason": "temporal trajectory"}
+{"query": "Reasons we picked Vercel over Cloudflare", "expected": "TRACE", "reason": "multi-step decision rationale"}
+{"query": "What did jane@example.com say last week?", "expected": "TEMPORAL", "reason": "time anchor + subject filter"}
+{"query": "Who decided to deprecate the V1 API?", "expected": "TRIPLET", "reason": "decided-by predicate"}
+{"query": "List notes containing 'PII' as a literal acronym", "expected": "LEXICAL", "reason": "literal token"}
+{"query": "Are we generally on track with hiring?", "expected": "ASK", "reason": "judgment / sentiment"}
+{"query": "Network of contributors to the v0.19 release", "expected": "GRAPH", "reason": "entity neighborhood"}
+{"query": "Find anything semantically related to 'lonely on Sundays'", "expected": "VECTOR", "reason": "purely semantic, no entity"}
+{"query": "What does Acme Corp do?", "expected": "TRIPLET", "reason": "subject + predicate lookup (entity-attribute)"}
+{"query": "How does refine.reweight handle a tied feedback signal?", "expected": "CODE", "reason": "code-graph function-level question"}
+{"query": "Cypher: MATCH (p:Person {name:'Sam'})-[:OWNS]->(c) RETURN c", "expected": "CYPHER", "reason": "raw Cypher passthrough"}
+{"query": "Did the user finish their book recommendations list?", "expected": "ASK", "reason": "judgment / completeness check"}
+{"query": "Pull every memo tagged 'launch-blocker' verbatim", "expected": "LEXICAL", "reason": "literal tag match"}
+{"query": "What's the relationship between the billing team and stripe webhooks?", "expected": "GRAPH", "reason": "relationship walk between entities"}
+{"query": "Reconstruct what we knew on the day of the v0.16 outage", "expected": "TEMPORAL", "reason": "point-in-time reconstruction"}
+{"query": "Trace why the migration broke", "expected": "TRACE", "reason": "multi-hop causal chain"}
+{"query": "Who funded the Series A?", "expected": "TRIPLET", "reason": "funded-by predicate"}
+{"query": "Anything about 'observability' broadly speaking", "expected": "VECTOR", "reason": "loose topical semantic"}
+{"query": "Get me the function that emits the audit chain hash", "expected": "CODE", "reason": "code-graph function lookup"}
+{"query": "Find notes mentioning both 'compliance' and 'GDPR'", "expected": "LEXICAL", "reason": "multi-word literal"}

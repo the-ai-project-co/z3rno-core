@@ -222,6 +222,11 @@ ignore = [
 ]
 
 [tool.ruff.lint.per-file-ignores]
+"tests/eval/run_*.py" = [
+  "T201",     # print is fine in eval runners (CLI output)
+  "BLE001",   # surface model errors broadly in eval runners
+  "SLF001",   # eval runners reach into AutoStrategy._classify by design
+]
 "tests/**/*.py" = [
   "S101",     # asserts are fine in tests
   "S110",     # try-except-pass is fine in tests (intentional error tolerance)
