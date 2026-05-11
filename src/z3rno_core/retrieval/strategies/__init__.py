@@ -16,6 +16,7 @@ from z3rno_core.retrieval.strategies import (  # noqa: F401  (side-effect import
     auto,
     graph,
     lexical,
+    trace,
     triplet,
     vector,
 )

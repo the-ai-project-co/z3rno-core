@@ -38,22 +38,25 @@ from uuid import UUID
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncConnection
 
-from z3rno_core.engine.audit import create_audit_entry
-from z3rno_core.engine.embedding import EmbeddingProvider
-
 # Import strategies package as a side-effect — registers VECTOR, LEXICAL,
 # AUTO with the registry. Doing this here (rather than in
 # z3rno_core.retrieval.__init__) avoids a circular import: this module
 # depends on retrieval, and engine/__init__.py re-exports recall, so
 # strategies → engine.embedding → engine/__init__ → engine.recall →
 # retrieval would loop.
-import z3rno_core.retrieval.strategies  # noqa: F401, E402
-from z3rno_core.retrieval.base import (  # noqa: E402
+import z3rno_core.retrieval.strategies  # noqa: F401
+from z3rno_core.engine.audit import create_audit_entry
+from z3rno_core.engine.embedding import EmbeddingProvider
+from z3rno_core.retrieval.base import (
     RecallResponse,
     StrategyResult,
     get_strategy,
 )
-
+from z3rno_core.retrieval.reranker import (
+    DEFAULT_RERANKER_MODEL,
+    RerankerError,
+    rerank as _rerank_results,
+)
 
 # ---------------------------------------------------------------------------
 # Backwards-compat dataclass (pre-Phase-C shape)
@@ -109,6 +112,14 @@ async def recall(
     # Phase C.2+: optional LLM gateway for GRAPH / TRIPLET / TRACE / ASK.
     # Forwarded to the strategy as ``llm_gateway`` in **extra.
     llm_gateway: Any | None = None,
+    # Phase C.3: opt-in cross-encoder re-ranking. When True, after the
+    # strategy returns we score the top results against the original
+    # query via a cross-encoder and replace ``relevance_score`` with
+    # the (normalised) cross-encoder score. Requires the
+    # ``[multimodal-local]`` extra (sentence-transformers).
+    rerank: bool = False,
+    reranker_model: str | None = None,
+    reranker_model_cache: Any | None = None,
     memory_type: str | None = None,
     filters: dict[str, Any] | None = None,
     top_k: int = 10,
@@ -160,7 +171,11 @@ async def recall(
     strategy_cls = get_strategy(strategy)
     requested_name = strategy_cls.name
 
-    results: list[StrategyResult] = await strategy_cls().retrieve(
+    # Instantiate once so we can inspect strategy state after retrieve()
+    # — AUTO exposes ``delegated_to`` so we can populate response
+    # provenance with the chosen strategy.
+    strategy_instance = strategy_cls()
+    results: list[StrategyResult] = await strategy_instance.retrieve(
         conn,
         org_id=org_id,
         agent_id=agent_id,
@@ -180,6 +195,26 @@ async def recall(
         importance_weight=importance_weight,
         recency_weight=recency_weight,
     )
+
+    # --- Optional cross-encoder re-rank ---
+    # Runs only when rerank=True AND the strategy returned candidates.
+    # A reranker error doesn't fail the whole recall — log + return the
+    # original strategy output. AUTO + rerank=True is supported.
+    reranked = False
+    if rerank and results:
+        try:
+            results = await _rerank_results(
+                query or "",
+                results,
+                model_name=reranker_model or DEFAULT_RERANKER_MODEL,
+                top_k=top_k,
+                model_cache=reranker_model_cache,
+            )
+            reranked = True
+        except RerankerError:
+            # Logged inside; we keep the un-reranked results so the
+            # caller still gets useful output.
+            pass
 
     # --- Update recall_count and last_recalled_at ---
     # Deterministic id order so concurrent recalls touching overlapping
@@ -205,14 +240,28 @@ async def recall(
         )
 
     # --- Audit log ---
-    # ``strategies_considered`` captures AUTO's routing decision. Until
-    # C.3 ships the real classifier, AUTO always considers VECTOR; the
-    # audit row records the actual delegate so historical queries can
-    # still be analysed by strategy.
-    actual_strategy = _resolve_actual_strategy(requested_name, results)
+    # ``strategies_considered`` captures AUTO's routing decision. AUTO
+    # exposes ``delegated_to`` after retrieve() so we record the actual
+    # delegate (post-classifier) rather than the requested name. Other
+    # strategies just record their own name.
+    actual_strategy = _resolve_actual_strategy(requested_name, strategy_instance)
+    classifier_reason = getattr(strategy_instance, "classifier_reason", "")
     strategies_considered = (
         [f"AUTO->{actual_strategy}"] if requested_name == "AUTO" else [actual_strategy]
     )
+
+    audit_details: dict[str, Any] = {
+        "query_length": len(query) if query else 0,
+        "memory_type_filter": memory_type,
+        "top_k": top_k,
+        "result_count": len(results),
+        "similarity_threshold": similarity_threshold,
+        "strategy_requested": requested_name,
+        "strategy_used": actual_strategy,
+        "reranked": reranked,
+    }
+    if requested_name == "AUTO" and classifier_reason:
+        audit_details["classifier_reason"] = classifier_reason[:240]
 
     await create_audit_entry(
         conn,
@@ -220,16 +269,7 @@ async def recall(
         operation="recall",
         agent_id=agent_id,
         user_id=user_id,
-        details={
-            "query_length": len(query) if query else 0,
-            "memory_type_filter": memory_type,
-            "top_k": top_k,
-            "result_count": len(results),
-            "similarity_threshold": similarity_threshold,
-            "strategy_requested": requested_name,
-            "strategy_used": actual_strategy,
-            "reranked": False,
-        },
+        details=audit_details,
         api_key_id=api_key_id,
         ip_address=ip_address,
         user_agent=user_agent,
@@ -241,25 +281,18 @@ async def recall(
         results=results,
         strategy_used=actual_strategy,
         strategies_considered=strategies_considered,
-        reranked=False,
+        reranked=reranked,
         elapsed_ms=round(elapsed_ms, 3),
     )
 
 
-def _resolve_actual_strategy(requested: str, results: list[StrategyResult]) -> str:
-    """Best-effort "what actually ran" inference for the audit row.
-
-    AUTO in C.1 always delegates to VECTOR; C.3 will set this from the
-    classifier's decision instead. For non-AUTO strategies, the
-    requested name IS what ran.
-    """
+def _resolve_actual_strategy(requested: str, strategy_instance: Any) -> str:
+    """What actually ran. AUTO exposes ``delegated_to`` post-retrieve()."""
     if requested != "AUTO":
         return requested
-    # AUTO skeleton delegates to VECTOR. Once C.3 lands the real
-    # classifier we'll thread the actual choice through the response
-    # rather than infer it from results.
-    del results
-    return "VECTOR"
+    # AUTO sets ``delegated_to`` from the classifier (C.3) or falls
+    # back to "VECTOR" when no LLM is configured.
+    return str(getattr(strategy_instance, "delegated_to", "VECTOR"))
 
 
 # ---------------------------------------------------------------------------
