@@ -66,6 +66,17 @@ def run_migrations_online() -> None:
         )
 
         with context.begin_transaction():
+            # Force search_path to start with public so unqualified DDL
+            # lands in the right schema. The z3rno-postgres image
+            # pre-installs Apache AGE which prepends `ag_catalog` to
+            # the role's search_path; without this override every
+            # CREATE TABLE in a fresh DB silently lands in ag_catalog
+            # and breaks subsequent ALTER TABLE statements that *do*
+            # qualify ``public``. Issued inside the transaction so it
+            # piggy-backs the same commit as the migrations themselves.
+            from sqlalchemy import text as _sa_text  # noqa: PLC0415
+
+            connection.execute(_sa_text("SET LOCAL search_path = public"))
             context.run_migrations()
 
 
