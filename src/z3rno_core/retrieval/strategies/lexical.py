@@ -73,6 +73,7 @@ class LexicalStrategy(RetrievalStrategy):
             time_range=time_range,
             as_of=as_of,
             include_deleted=include_deleted,
+            conversation_id=extra.get("conversation_id"),
         )
 
         params["query"] = query

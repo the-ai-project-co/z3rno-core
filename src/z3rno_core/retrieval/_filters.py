@@ -23,6 +23,8 @@ def build_where_clause(
     time_range: tuple[datetime, datetime] | None = None,
     as_of: datetime | None = None,
     include_deleted: bool = False,
+    # Phase G slice 2 — scope to one conversation.
+    conversation_id: UUID | None = None,
 ) -> tuple[str, dict[str, Any]]:
     """Return ``(where_clause_sql, params_dict)`` for the standard filters.
 
@@ -59,5 +61,9 @@ def build_where_clause(
     if filters:
         conditions.append("metadata @> CAST(:meta_filter AS jsonb)")
         params["meta_filter"] = json.dumps(filters)
+
+    if conversation_id is not None:
+        conditions.append("conversation_id = CAST(:conversation_id AS uuid)")
+        params["conversation_id"] = str(conversation_id)
 
     return " AND ".join(conditions), params

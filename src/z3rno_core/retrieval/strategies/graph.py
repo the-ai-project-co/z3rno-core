@@ -100,6 +100,7 @@ class GraphStrategy(RetrievalStrategy):
             agent_id=agent_id,
             memory_type=memory_type,
             filters=filters,
+            conversation_id=extra.get("conversation_id"),
             time_range=time_range,
             as_of=as_of,
             include_deleted=include_deleted,

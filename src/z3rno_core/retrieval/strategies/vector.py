@@ -73,6 +73,7 @@ class VectorStrategy(RetrievalStrategy):
             time_range=time_range,
             as_of=as_of,
             include_deleted=include_deleted,
+            conversation_id=extra.get("conversation_id"),
         )
 
         # Vector path requires query + provider; otherwise fall back to

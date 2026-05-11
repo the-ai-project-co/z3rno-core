@@ -136,6 +136,10 @@ async def recall(
     retrieval_filters: list[Any] | None = None,
     memory_type: str | None = None,
     filters: dict[str, Any] | None = None,
+    # Phase G slice 2 — scope to a single conversation. When set,
+    # every strategy filters by ``memories.conversation_id`` so
+    # recall returns only Memos from this session.
+    conversation_id: UUID | None = None,
     top_k: int = 10,
     similarity_threshold: float = 0.0,
     time_range: tuple[datetime, datetime] | None = None,
@@ -197,6 +201,7 @@ async def recall(
         top_k=top_k,
         memory_type=memory_type,
         filters=filters,
+        conversation_id=conversation_id,
         similarity_threshold=similarity_threshold,
         # Strategy-specific kwargs flow through **extra. Each strategy
         # picks what it needs; unrecognised kwargs are silently ignored.
