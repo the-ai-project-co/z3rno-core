@@ -43,6 +43,7 @@ make seed                        # Load dev seed data
 - `../z3rno-process-docs/improvements/PHASE-B2-IMPLEMENTATION.md` — full operator reference for Multimodal + Search + S3 + Playwright
 - `../z3rno-process-docs/improvements/PHASE-C-IMPLEMENTATION.md` — full operator reference for the retrieval strategies
 - `../z3rno-process-docs/improvements/PHASE-D-IMPLEMENTATION.md` — full operator reference for refine + ontology + codegraph
+- `../z3rno-docs/concepts/verbs.mdx` — canonical Z3rno verb table (store / recall / forget / audit / ingest / distill / refine)
 
 ## Phase A — Forge (opt-in)
 
