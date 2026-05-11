@@ -140,6 +140,11 @@ async def recall(
     # every strategy filters by ``memories.conversation_id`` so
     # recall returns only Memos from this session.
     conversation_id: UUID | None = None,
+    # Phase G slice 5 — optional async callback fired by streaming
+    # strategies (TRACE today; AUTO future). Signature:
+    # ``async def cb(step: int, query: str, results: list[StrategyResult]) -> None``.
+    # When None, recall() runs the legacy single-shot path.
+    step_callback: Any = None,
     top_k: int = 10,
     similarity_threshold: float = 0.0,
     time_range: tuple[datetime, datetime] | None = None,
@@ -216,6 +221,7 @@ async def recall(
         allow_cypher_query=allow_cypher_query,
         raw_cypher=raw_cypher,
         tier_route=tier_route,
+        step_callback=step_callback,
     )
 
     # --- Optional cross-encoder re-rank ---

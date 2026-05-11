@@ -91,6 +91,11 @@ class TraceStrategy(RetrievalStrategy):
         per_step_top_k: int = max(
             1, int(extra.get("trace_step_top_k", _DEFAULT_PER_STEP_TOP_K))
         )
+        # Phase G slice 5 — optional async callback fired after each
+        # TRACE step. The SSE recall handler subscribes to push
+        # per-step results to the client as they land. None for the
+        # non-streaming path so legacy callers stay untouched.
+        step_callback = extra.get("step_callback")
 
         if not query.strip() or embedding_provider is None:
             return []
@@ -123,6 +128,16 @@ class TraceStrategy(RetrievalStrategy):
                         merged[r.memory_id] = (r, step)
                 else:
                     merged[r.memory_id] = (r, step)
+
+            # Phase G slice 5 — emit a streaming event with this step's
+            # raw results. Wrapped in try so a faulty callback never
+            # poisons the retrieval. The non-streaming path passes no
+            # callback, so the cost is one ``is None`` check.
+            if step_callback is not None:
+                try:
+                    await step_callback(step, current_query, step_results)
+                except Exception:  # noqa: BLE001 — best-effort stream
+                    logger.warning("trace step_callback failed", exc_info=True)
 
             # LLM-driven refinement for the next step. If the LLM is
             # unavailable, we ran one step already (functionally
