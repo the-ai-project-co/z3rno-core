@@ -129,6 +129,11 @@ async def recall(
     # the MemoryTierRouter for one or more tiers and fans the delegate
     # strategy out across them. No-op for other strategies.
     tier_route: bool = False,
+    # Phase F slice 2: caller's role + post-retrieval filter chain
+    # (e.g. RedactionFilter for PII redaction). Filters run after
+    # rerank — we never rerank redacted text — and never raise.
+    role: str | None = None,
+    retrieval_filters: list[Any] | None = None,
     memory_type: str | None = None,
     filters: dict[str, Any] | None = None,
     top_k: int = 10,
@@ -227,6 +232,17 @@ async def recall(
             # Logged inside; we keep the un-reranked results so the
             # caller still gets useful output.
             pass
+
+    # --- Phase F slice 2: post-retrieval filter chain ---
+    # Filters run *after* rerank because we never want to rerank
+    # redacted text. They must not raise — defensive try/except so a
+    # bad rule can never 500 a recall.
+    if retrieval_filters:
+        for filt in retrieval_filters:
+            try:
+                results = filt.apply(role, results)
+            except Exception:
+                pass
 
     # --- Update recall_count and last_recalled_at ---
     # Deterministic id order so concurrent recalls touching overlapping
