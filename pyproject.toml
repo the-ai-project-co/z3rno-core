@@ -7,7 +7,7 @@ build-backend = "hatchling.build"
 # =============================================================================
 [project]
 name = "z3rno-core"
-version = "0.10.0"
+version = "0.11.0"
 description = "Core memory engine for Z3rno: PostgreSQL schema, SQLAlchemy models, Alembic migrations, and the store/recall/forget/audit library functions."
 readme = "README.md"
 license = { text = "Apache-2.0" }
@@ -233,6 +233,7 @@ ignore = [
 "src/z3rno_core/retrieval/**/*.py" = [
   "S608",     # Same query-builder pattern as engine/ — predicates are internal strings, user input is parameterised
   "PLR2004",  # Magic values are row indices from SQL result tuples (same posture as engine/)
+  "PLR0911",  # Strategies have graceful-degradation early-return paths (no LLM, AGE down, validation fail, ...)
   "PLR0912",  # Strategies legitimately have many branches (kwargs unpacking, optional LLM, graceful degradation paths)
   "PLR0915",  # Phase C strategies are pipelines — many statements by design
   "PERF401",  # for-append idioms read clearer here than list.extend with generator (AGE row parsing)
@@ -340,6 +341,7 @@ addopts = [
 markers = [
   "integration: tests that need a real PostgreSQL container (slow)",
   "slow: tests that take >1 second",
+  "eval: routing-accuracy / quality benchmarks (needs LLM API key + Z3RNO_RUN_EVAL=1)",
 ]
 filterwarnings = [
   "error",

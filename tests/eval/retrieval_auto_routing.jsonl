@@ -1,0 +1,51 @@
+{"query": "What did the user say about their preferred programming language?", "expected": "VECTOR", "reason": "open-ended semantic preference lookup"}
+{"query": "Find memories similar to 'I love hiking on weekends'", "expected": "VECTOR", "reason": "explicit similarity search over content"}
+{"query": "What are the user's recent thoughts on artificial intelligence?", "expected": "VECTOR", "reason": "open-ended semantic search; no time anchor"}
+{"query": "Tell me about the user's hobbies", "expected": "VECTOR", "reason": "broad open-ended retrieval"}
+{"query": "What does the user think about coffee?", "expected": "VECTOR", "reason": "opinion lookup via semantic similarity"}
+{"query": "Show me memories about machine learning research", "expected": "VECTOR", "reason": "topic-based semantic search"}
+{"query": "find any memory that contains the word Postgres", "expected": "LEXICAL", "reason": "explicit exact-word match"}
+{"query": "Search for memories mentioning the exact phrase 'unit economics'", "expected": "LEXICAL", "reason": "exact phrase match"}
+{"query": "Memories containing the term GDPR", "expected": "LEXICAL", "reason": "term match"}
+{"query": "Which memories have the word 'compliance' in them?", "expected": "LEXICAL", "reason": "exact word search"}
+{"query": "Find every memory where the keyword 'kubernetes' appears", "expected": "LEXICAL", "reason": "keyword match"}
+{"query": "Memories with the exact string 'q4 revenue'", "expected": "LEXICAL", "reason": "exact string search"}
+{"query": "How are Alice and Bob related?", "expected": "GRAPH", "reason": "relationship-question between entities"}
+{"query": "What's the connection between Acme Corp and Globex?", "expected": "GRAPH", "reason": "explicit connection/relationship between entities"}
+{"query": "Show me how the platform team relates to other teams", "expected": "GRAPH", "reason": "relational web exploration"}
+{"query": "Explain how Charlie and the marketing team are connected", "expected": "GRAPH", "reason": "entity-to-entity relationship"}
+{"query": "Walk me through the chain of decisions that led to the rebrand", "expected": "GRAPH", "reason": "chain-of-relationships traversal"}
+{"query": "What are the relationships between our engineering and product teams?", "expected": "GRAPH", "reason": "team-to-team graph"}
+{"query": "Where does Alice work?", "expected": "TRIPLET", "reason": "direct factual question with predicate (works_at) and known subject"}
+{"query": "Who founded Acme Corp?", "expected": "TRIPLET", "reason": "direct factual: ? founded Acme"}
+{"query": "What city is the office in?", "expected": "TRIPLET", "reason": "direct factual: office is_in ?"}
+{"query": "Who is the CEO of Globex?", "expected": "TRIPLET", "reason": "subject-of-relationship question"}
+{"query": "What language does the user speak?", "expected": "TRIPLET", "reason": "single-fact lookup"}
+{"query": "Who married Bob?", "expected": "TRIPLET", "reason": "S/O-fill question"}
+{"query": "Trace the reasoning behind the pricing change", "expected": "TRACE", "reason": "explicit chain-of-thought retrieval"}
+{"query": "Walk me through how we decided on the AWS migration", "expected": "TRACE", "reason": "multi-step reasoning"}
+{"query": "Step by step, why did we deprecate the legacy API?", "expected": "TRACE", "reason": "step-by-step decision trace"}
+{"query": "Explain the full thought process behind the layoffs", "expected": "TRACE", "reason": "chain of reasoning"}
+{"query": "How did we arrive at the new product strategy?", "expected": "TRACE", "reason": "decision-path trace"}
+{"query": "What did the user know on March 5th 2024?", "expected": "TEMPORAL", "reason": "explicit time-anchored retrieval"}
+{"query": "Memories from last week about the launch", "expected": "TEMPORAL", "reason": "relative time anchor"}
+{"query": "What was the user's view on remote work in 2023?", "expected": "TEMPORAL", "reason": "year-anchored historical view"}
+{"query": "Show me what we believed about pricing before Q3", "expected": "TEMPORAL", "reason": "before-X temporal cutoff"}
+{"query": "What did our model think on Jan 15?", "expected": "TEMPORAL", "reason": "specific date anchor"}
+{"query": "Recall everything from the morning of the incident", "expected": "TEMPORAL", "reason": "time-window retrieval"}
+{"query": "How many memories do we have about onboarding?", "expected": "ASK", "reason": "count/analytics question"}
+{"query": "What's the average importance score of recent memories?", "expected": "ASK", "reason": "aggregate analytics"}
+{"query": "Count the memos in the marketing dataset", "expected": "ASK", "reason": "count aggregate"}
+{"query": "How many distinct entities are in the graph?", "expected": "ASK", "reason": "graph aggregate"}
+{"query": "What percentage of memories are episodic?", "expected": "ASK", "reason": "percentage analytics"}
+{"query": "List the top 10 most-referenced people across all memories", "expected": "ASK", "reason": "rank-aggregate over the graph"}
+{"query": "Find memories where I mentioned both 'OKRs' and 'roadmap'", "expected": "VECTOR", "reason": "co-occurrence semantic — VECTOR handles multi-word concept blend better than LEXICAL"}
+{"query": "Surface notes about customer churn", "expected": "VECTOR", "reason": "topic surface"}
+{"query": "What were the user's first impressions of the new hire?", "expected": "VECTOR", "reason": "opinion/impression retrieval"}
+{"query": "Which projects did Alice lead?", "expected": "TRIPLET", "reason": "S=Alice, P=led, O=?"}
+{"query": "Pull all memories tagged 'priority:high'", "expected": "LEXICAL", "reason": "tag-shaped exact match"}
+{"query": "Find memos that exactly say 'we are pivoting'", "expected": "LEXICAL", "reason": "exact-phrase quoted"}
+{"query": "Map out who reports to whom in the engineering org", "expected": "GRAPH", "reason": "org-chart relationships"}
+{"query": "What did Bob believe last quarter that he no longer believes?", "expected": "TEMPORAL", "reason": "compare-to-past time-aware retrieval"}
+{"query": "Trace back why this customer churned", "expected": "TRACE", "reason": "causal-chain retrieval"}
+{"query": "How many memories were created last month?", "expected": "ASK", "reason": "count by time window"}

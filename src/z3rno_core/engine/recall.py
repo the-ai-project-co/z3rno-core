@@ -120,6 +120,10 @@ async def recall(
     rerank: bool = False,
     reranker_model: str | None = None,
     reranker_model_cache: Any | None = None,
+    # Phase C.4: opt-in raw-Cypher passthrough for the CYPHER strategy.
+    # Off by default; servers gate via ``ALLOW_CYPHER_QUERY=true``.
+    allow_cypher_query: bool = False,
+    raw_cypher: str | None = None,
     memory_type: str | None = None,
     filters: dict[str, Any] | None = None,
     top_k: int = 10,
@@ -194,6 +198,8 @@ async def recall(
         similarity_weight=similarity_weight,
         importance_weight=importance_weight,
         recency_weight=recency_weight,
+        allow_cypher_query=allow_cypher_query,
+        raw_cypher=raw_cypher,
     )
 
     # --- Optional cross-encoder re-rank ---
