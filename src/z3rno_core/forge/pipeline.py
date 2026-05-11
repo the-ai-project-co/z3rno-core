@@ -54,6 +54,12 @@ from z3rno_core.distill.graph_writer import (
 )
 from z3rno_core.distill.summarize import rolling_summarize
 from z3rno_core.security.rls import set_org_context
+from z3rno_core.usage import (
+    BudgetExceededError,
+    Budgets,
+    check_budget,
+    resolve_budgets,
+)
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine
@@ -87,6 +93,11 @@ class ForgeOptions:
     # Phase F slice 1 — when True, the graph-writer aborts if it can't
     # stamp provenance + enqueue the audit-chain entry for any Memo.
     provenance_required: bool = False
+    # v0.19.2 — server-default budget caps. The pipeline merges the
+    # tenant override (``tenants.usage_budget``) on top via
+    # ``resolve_budgets`` and pre-flights ``check_budget`` before any
+    # LLM/embedding spend. Empty (default) means no enforcement.
+    budgets: Budgets | None = None
 
 
 @dataclass
@@ -164,6 +175,32 @@ class ForgePipeline:
         """
         job_id = job_id or uuid4()
         summary = ForgeRunSummary(job_id=job_id, status="failed")
+
+        # ---- v0.19.2: budget pre-flight ---------------------------------
+        # Hard-stop at the job boundary. Empty budgets = fast-path no-op.
+        if self._options.budgets is not None and not self._options.budgets.is_empty():
+            try:
+                async with engine.begin() as conn:
+                    await self._set_rls(conn, org_id)
+                    resolved = await resolve_budgets(
+                        conn,
+                        org_id=org_id,
+                        defaults=self._options.budgets,
+                    )
+                    await check_budget(conn, org_id=org_id, budgets=resolved)
+            except BudgetExceededError as exc:
+                summary.status = "rejected"
+                summary.error = str(exc)
+                summary.completed_at = datetime.now().astimezone()
+                log.warning(
+                    "forge.run.budget_exceeded",
+                    job_id=str(job_id),
+                    kind=exc.kind,
+                    window=exc.window,
+                    used=exc.used,
+                    cap=exc.cap,
+                )
+                return summary
 
         # ---- ensure job row exists, mark running ------------------------
         try:

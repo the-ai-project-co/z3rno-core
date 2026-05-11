@@ -179,6 +179,48 @@ def _month_start(day: date) -> date:
     return day.replace(day=1)
 
 
+async def resolve_budgets(
+    conn: AsyncConnection,
+    *,
+    org_id: UUID,
+    defaults: Budgets,
+) -> Budgets:
+    """Merge per-tenant overrides on top of server defaults.
+
+    Reads ``tenants.usage_budget`` (Migration 030). Any non-zero
+    field on the tenant row wins over the default; zero / missing
+    falls through. NULL row → defaults returned unchanged.
+
+    Cheap by design: one indexed PK fetch. Callers cache the result
+    per-request if they need to call check_budget multiple times.
+    """
+    result = await conn.execute(
+        text(
+            "SELECT usage_budget FROM tenants "
+            "WHERE org_id = CAST(:org_id AS uuid) "
+            "LIMIT 1"
+        ),
+        {"org_id": str(org_id)},
+    )
+    row = result.fetchone()
+    if row is None or row[0] is None:
+        return defaults
+    override = dict(row[0])
+
+    def _pick(name: str) -> int:
+        v = int(override.get(name, 0) or 0)
+        return v if v > 0 else getattr(defaults, name, 0)
+
+    return Budgets(
+        daily_tokens=_pick("daily_tokens"),
+        daily_llm_calls=_pick("daily_llm_calls"),
+        daily_embeddings=_pick("daily_embeddings"),
+        monthly_tokens=_pick("monthly_tokens"),
+        monthly_llm_calls=_pick("monthly_llm_calls"),
+        monthly_embeddings=_pick("monthly_embeddings"),
+    )
+
+
 async def check_budget(
     conn: AsyncConnection,
     *,
@@ -221,5 +263,6 @@ __all__ = [
     "check_budget",
     "get_usage",
     "record_usage",
+    "resolve_budgets",
     "timedelta",
 ]

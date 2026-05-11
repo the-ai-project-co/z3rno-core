@@ -24,6 +24,7 @@ from z3rno_core.usage.counters import (
     check_budget,
     get_usage,
     record_usage,
+    resolve_budgets,
 )
 
 __all__ = [
@@ -34,4 +35,5 @@ __all__ = [
     "check_budget",
     "get_usage",
     "record_usage",
+    "resolve_budgets",
 ]

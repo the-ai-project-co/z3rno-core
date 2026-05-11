@@ -34,6 +34,12 @@ from z3rno_core.refine.prune import PruneResult, run_prune
 from z3rno_core.refine.reweight import ReweightResult, run_reweight
 from z3rno_core.refine.state import insert_refine_job, update_refine_job
 from z3rno_core.refine.summarize import SummarizeResult, run_summarize
+from z3rno_core.usage import (
+    BudgetExceededError,
+    Budgets,
+    check_budget,
+    resolve_budgets,
+)
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncConnection
@@ -55,6 +61,10 @@ class RefineOptions:
     infer_enabled: bool = False
     summarize_enabled: bool = False
     infer_max_candidates: int = 50
+    # v0.19.2 — server-default budget caps. Pre-flighted at run start;
+    # tenant-row override merged via ``resolve_budgets``. Empty (default)
+    # means no enforcement.
+    budgets: Budgets | None = None
 
 
 @dataclass
@@ -108,6 +118,26 @@ class RefinePipeline:
         """
         rj_id = job_id or uuid4()
         summary = RefineRunSummary(job_id=rj_id)
+
+        # v0.19.2 — budget pre-flight. Hard-stop at the job boundary.
+        if self.options.budgets is not None and not self.options.budgets.is_empty():
+            try:
+                resolved = await resolve_budgets(
+                    conn, org_id=org_id, defaults=self.options.budgets
+                )
+                await check_budget(conn, org_id=org_id, budgets=resolved)
+            except BudgetExceededError as exc:
+                summary.status = "rejected"
+                summary.error = str(exc)
+                log.warning(
+                    "refine.run.budget_exceeded",
+                    job_id=str(rj_id),
+                    kind=exc.kind,
+                    window=exc.window,
+                    used=exc.used,
+                    cap=exc.cap,
+                )
+                return summary
 
         if job_id is None:
             await insert_refine_job(
