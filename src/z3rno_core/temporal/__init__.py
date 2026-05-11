@@ -10,6 +10,12 @@ memories table, which uses valid_from/valid_to for temporal versioning.
 
 from __future__ import annotations
 
+from z3rno_core.temporal.memo_versioning import (
+    MemoVersion,
+    get_memo_at,
+    list_memo_versions,
+    record_memo_version,
+)
 from z3rno_core.temporal.queries import (
     get_memories_changed_between,
     get_memory_at_time,
@@ -17,7 +23,11 @@ from z3rno_core.temporal.queries import (
 )
 
 __all__ = [
+    "MemoVersion",
+    "get_memo_at",
     "get_memories_changed_between",
     "get_memory_at_time",
     "get_memory_history",
+    "list_memo_versions",
+    "record_memo_version",
 ]

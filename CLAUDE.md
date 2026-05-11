@@ -35,7 +35,7 @@ make seed                        # Load dev seed data
 - `src/z3rno_core/refine/` — **Phase D:** RefinePipeline orchestrator (dedupe → infer → summarize → reweight → prune); `refine_jobs` state helpers; `record_feedback` + edge-weight EMA.
 - `src/z3rno_core/ontology/` — **Phase D:** OWL/TTL loader (rdflib, lazy) + OntologyResolver (exact + fuzzy via rapidfuzz). Optional `[ontology]` extra.
 - `src/z3rno_core/codegraph/` — **Phase D:** tree-sitter parser (Python + TypeScript), AST → CodeMemo/CodeEdge extractor, writer to memories + memory_relationships. Optional `[codegraph]` extra.
-- `migrations/versions/` — 25 Alembic migrations (001–025; **016** = Phase B.1 datasets/ingest_jobs; **023** = Phase D memo_type/ontology_uri columns + feedback table; **024** = refine_jobs table; **025** = Phase F memories.distill_provenance + 'distill' audit op)
+- `migrations/versions/` — 26 Alembic migrations (001–026; **016** = Phase B.1 datasets/ingest_jobs; **023** = Phase D memo_type/ontology_uri columns + feedback table; **024** = refine_jobs table; **025** = Phase F memories.distill_provenance + 'distill' audit op; **026** = memo_versions SCD-2 shadow for graph-node properties)
 - `seeds/dev_seed.py` — Dev seed data (2 tenants, 500 memories, 1000 audit entries)
 - `docs/` — SCHEMA.md, MULTI_TENANCY.md, ADR-001
 - `../z3rno-process-docs/improvements/PHASE-A-IMPLEMENTATION.md` — full operator reference for the Forge pipeline

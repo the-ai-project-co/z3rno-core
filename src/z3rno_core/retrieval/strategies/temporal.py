@@ -133,14 +133,32 @@ class TemporalStrategy(RetrievalStrategy):
             return vector_results
 
         ts_iso = as_of.isoformat()
+
+        # Phase F slice 3 — when a memo_versions row exists for the
+        # Memo at ``as_of``, merge those historical properties into
+        # the result metadata. The row-level SCD-2 already handled
+        # content / valid_from; this layer adds graph-projected
+        # properties (memo_type, ontology_uri, refine lineage, etc.).
+        from z3rno_core.temporal.memo_versioning import (  # noqa: PLC0415
+            get_memo_at,
+        )
+
         out: list[StrategyResult] = []
         for r in vector_results:
             new_metadata = dict(r.metadata)
             new_metadata["temporal_as_of"] = ts_iso
             new_components = dict(r.score_components)
-            # Surface intent so AUTO + re-rank fusion can distinguish
-            # temporal vs current-time hits later.
             new_components["temporal"] = 1.0
+
+            try:
+                version = await get_memo_at(conn, memo_id=r.memory_id, as_of=as_of)
+            except Exception:
+                version = None
+            if version is not None:
+                new_metadata["memo_version"] = version.version
+                new_metadata["memo_version_properties"] = version.properties
+                new_components["memo_version_hit"] = 1.0
+
             out.append(
                 StrategyResult(
                     memory_id=r.memory_id,
@@ -159,9 +177,7 @@ class TemporalStrategy(RetrievalStrategy):
             )
         return out
 
-    async def _extract_timestamp(
-        self, gateway: LLMGateway, *, query: str
-    ) -> datetime | None:
+    async def _extract_timestamp(self, gateway: LLMGateway, *, query: str) -> datetime | None:
         """LLM extracts an ISO-8601 timestamp from time hints in ``query``."""
         system = (
             "Extract the point-in-time the user is asking about. Return an "

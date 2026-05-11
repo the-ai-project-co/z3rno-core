@@ -282,8 +282,10 @@ class TestStoreRelationships:
                 ],
             )
 
-        # 1 for memory INSERT, 1 for relationship INSERT
-        assert conn.execute.call_count == 2
+        # 1 memory INSERT + 1 relationship INSERT + 3 from memo_versioning
+        # (Phase F slice 3): SELECT prior, UPDATE close (the mock returns
+        # a truthy fetchone so the close-prior branch fires), INSERT new.
+        assert conn.execute.call_count == 5
         rel_call = conn.execute.call_args_list[1]
         params = rel_call[0][1]
         assert params["target"] == str(target)
@@ -302,8 +304,10 @@ class TestStoreRelationships:
                 memory_type=MemoryType.SEMANTIC,
             )
 
-        # Only 1 execute for memory INSERT
-        assert conn.execute.call_count == 1
+        # 1 memory INSERT + 3 from memo_versioning (Phase F slice 3:
+        # SELECT prior, UPDATE close, INSERT new — the mock returns a
+        # truthy fetchone so the close-prior branch fires).
+        assert conn.execute.call_count == 4
 
 
 # ---------------------------------------------------------------------------
@@ -440,8 +444,9 @@ class TestStoreDuplicateDetection:
             )
 
         assert isinstance(result, StoreResult)
-        # Only 1 execute call (the INSERT), no duplicate check SELECT
-        assert conn.execute.call_count == 1
+        # 1 INSERT + 3 from memo_versioning (mock fetchone is truthy
+        # so the close-prior UPDATE branch fires), no duplicate check.
+        assert conn.execute.call_count == 4
 
     async def test_check_duplicates_without_embedding_skips(self) -> None:
         """When no embedding is generated, duplicate check is skipped."""
@@ -458,5 +463,6 @@ class TestStoreDuplicateDetection:
             )
 
         assert isinstance(result, StoreResult)
-        # Only 1 execute call (the INSERT), no duplicate check
-        assert conn.execute.call_count == 1
+        # 1 INSERT + 3 from memo_versioning (mock fetchone is truthy
+        # so close-prior UPDATE branch fires), no duplicate check.
+        assert conn.execute.call_count == 4

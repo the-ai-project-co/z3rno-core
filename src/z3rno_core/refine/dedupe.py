@@ -45,7 +45,10 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 from uuid import UUID
 
+import structlog
 from sqlalchemy import text
+
+log = structlog.get_logger(__name__)
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncConnection
@@ -180,5 +183,31 @@ async def run_dedupe(
             """),
             {"primary": str(group.primary_id), "merged": json.dumps(merged_from)},
         )
+
+        # 3. Phase F slice 3 — record a new memo_versions snapshot
+        # for the primary. The merged_from change is a graph-visible
+        # state transition that operators querying `as_of=now()`
+        # should see distinctly from prior states.
+        try:
+            from z3rno_core.temporal.memo_versioning import (  # noqa: PLC0415
+                record_memo_version,
+            )
+
+            await record_memo_version(
+                conn,
+                org_id=org_id,
+                memo_id=group.primary_id,
+                properties={
+                    "refine_event": "dedupe",
+                    "merged_from": merged_from,
+                    "group_key": group.key,
+                },
+            )
+        except Exception as exc:
+            log.warning(
+                "refine.dedupe.memo_version_failed",
+                memo_id=str(group.primary_id),
+                error=str(exc),
+            )
 
     return DedupeResult(memos_scanned=len(typed_rows), groups=tuple(groups))

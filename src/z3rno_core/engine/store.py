@@ -285,6 +285,30 @@ async def store(
         request_id=request_id,
     )
 
+    # Phase F slice 3 — record version 1 in memo_versions. Best-effort:
+    # a versioning failure is logged but doesn't roll back the Memo
+    # insert (the Memo itself is the source of truth).
+    try:
+        from z3rno_core.temporal.memo_versioning import (
+            record_memo_version,
+        )
+
+        await record_memo_version(
+            conn,
+            org_id=org_id,
+            memo_id=memory_id,
+            properties={
+                "memory_type": memory_type.value,
+                "content": content,
+                "metadata": metadata or {},
+                "importance_score": importance_score,
+                "dataset_id": str(dataset_id) if dataset_id else None,
+                "distill_provenance": distill_provenance,
+            },
+        )
+    except Exception:
+        pass
+
     return StoreResult(
         memory_id=memory_id,
         embedding_model=embedding_model,
