@@ -145,6 +145,13 @@ async def recall(
     # ``async def cb(step: int, query: str, results: list[StrategyResult]) -> None``.
     # When None, recall() runs the legacy single-shot path.
     step_callback: Any = None,
+    # v0.19.1 — two-phase recall. ``conn`` runs the SELECT-heavy
+    # strategy work (typically a replica when DATABASE_READ_URL is
+    # set); ``write_conn`` is the primary used for the
+    # ``recall_count``/``last_recalled_at`` bump + the audit row.
+    # When None, both phases share ``conn`` (legacy single-conn
+    # callers stay byte-identical).
+    write_conn: AsyncConnection | None = None,
     top_k: int = 10,
     similarity_threshold: float = 0.0,
     time_range: tuple[datetime, datetime] | None = None,
@@ -260,9 +267,15 @@ async def recall(
     # memory sets queue on a lock instead of deadlocking. SCD-Type-2
     # trigger explicitly skips recall_count updates so this doesn't
     # versioned-fork the row.
+    #
+    # v0.19.1 — Phase 2 of two-phase recall: the SELECT-heavy work
+    # above can run on a read replica; the write-back lands on
+    # ``write_conn`` (primary). Defaults to ``conn`` so single-conn
+    # callers keep working unchanged.
+    write_target = write_conn or conn
     if results:
         memory_ids = sorted(str(r.memory_id) for r in results)
-        await conn.execute(
+        await write_target.execute(
             text("""
                 UPDATE public.memories
                 SET recall_count = recall_count + 1,
@@ -302,8 +315,10 @@ async def recall(
     if requested_name == "AUTO" and classifier_reason:
         audit_details["classifier_reason"] = classifier_reason[:240]
 
+    # Audit always lands on the primary — the hash chain is order-
+    # sensitive and we can't have replica-lagged audit rows.
     await create_audit_entry(
-        conn,
+        write_target,
         org_id=org_id,
         operation="recall",
         agent_id=agent_id,
