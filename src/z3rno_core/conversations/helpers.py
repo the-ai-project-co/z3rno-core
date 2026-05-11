@@ -282,6 +282,36 @@ def needs_summary(conv: Conversation) -> bool:
     return (conv.turn_count - conv.last_summary_turn) >= conv.summary_cadence
 
 
+async def delete_conversation(
+    conn: AsyncConnection,
+    *,
+    org_id: UUID,
+    conversation_id: UUID,
+) -> bool:
+    """v0.19.3 — soft-delete a conversation.
+
+    Sets ``deleted_at = now()``. Existing turn Memos stay intact (the
+    Memo's ``conversation_id`` FK survives) so historical recall via
+    ``as_of`` queries still finds them, but the conversation no longer
+    accepts new turns and ``get_conversation`` / ``list_turns`` 404.
+
+    Returns ``True`` if a row was updated, ``False`` if the
+    conversation didn't exist or was already deleted (so the caller
+    can decide 404 vs idempotent OK).
+    """
+    result = await conn.execute(
+        text(
+            "UPDATE conversations "
+            "SET deleted_at = now(), updated_at = now() "
+            "WHERE org_id = CAST(:org_id AS uuid) "
+            "  AND id = CAST(:id AS uuid) "
+            "  AND deleted_at IS NULL"
+        ),
+        {"org_id": str(org_id), "id": str(conversation_id)},
+    )
+    return result.rowcount > 0
+
+
 async def mark_summary_emitted(
     conn: AsyncConnection,
     *,
