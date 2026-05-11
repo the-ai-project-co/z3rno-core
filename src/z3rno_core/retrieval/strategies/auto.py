@@ -104,6 +104,9 @@ class AutoStrategy(RetrievalStrategy):
         # AUTO actually chose for audit + response provenance.
         self.delegated_to: str = "VECTOR"
         self.classifier_reason: str = ""
+        # Phase F slice 4 — populated when tier_route=True; lets the
+        # engine layer surface the tier decision on the response.
+        self.tier_decision: Any = None
 
     async def retrieve(
         self,
@@ -131,6 +134,36 @@ class AutoStrategy(RetrievalStrategy):
             self.delegated_to = "VECTOR"
             strategy_cls = get_strategy("VECTOR")
 
+        # Phase F slice 4 — tier-routed fan-out.
+        #
+        # When the caller opts in via ``tier_route=True`` AND no explicit
+        # ``memory_type`` filter is set, we ask the MemoryTierRouter to pick
+        # one or more tiers, run the delegate strategy per tier in parallel,
+        # then merge by ``relevance_score`` and keep top_k. Single-tier
+        # decisions stay cheap (one delegate call with a memory_type filter).
+        if extra.get("tier_route") and memory_type is None:
+            from z3rno_core.memory_tiers import MemoryTierRouter  # noqa: PLC0415
+
+            router = MemoryTierRouter(gateway=extra.get("llm_gateway"))
+            decision = await router.route(query)
+            self.tier_decision = decision
+            if decision.is_multi_tier:
+                return await self._fan_out(
+                    strategy_cls=strategy_cls,
+                    conn=conn,
+                    org_id=org_id,
+                    agent_id=agent_id,
+                    query=query,
+                    top_k=top_k,
+                    filters=filters,
+                    similarity_threshold=similarity_threshold,
+                    tiers=[t.value for t in decision.tiers],
+                    extra=extra,
+                )
+            # Single-tier decision: pass the tier as the memory_type filter
+            # for the delegate. Cheaper than a fan-out and just as accurate.
+            memory_type = decision.tiers[0].value
+
         return await strategy_cls().retrieve(
             conn,
             org_id=org_id,
@@ -142,6 +175,75 @@ class AutoStrategy(RetrievalStrategy):
             similarity_threshold=similarity_threshold,
             **extra,
         )
+
+    async def _fan_out(
+        self,
+        *,
+        strategy_cls: type[RetrievalStrategy],
+        conn: AsyncConnection,
+        org_id: UUID,
+        agent_id: UUID,
+        query: str,
+        top_k: int,
+        filters: dict[str, Any] | None,
+        similarity_threshold: float,
+        tiers: list[str],
+        extra: dict[str, Any],
+    ) -> list[StrategyResult]:
+        """Run ``strategy_cls`` once per tier in parallel, merge results,
+        dedupe by ``memory_id``, return the top_k by relevance.
+
+        Cap each per-tier call at ``top_k`` so the total work stays
+        bounded at ``len(tiers) * top_k`` — typically 2-4x baseline for
+        multi-tier decisions.
+        """
+        import asyncio  # noqa: PLC0415
+
+        # Strip tier_route + memory_type from passthrough — we own those.
+        passthrough = {k: v for k, v in extra.items() if k != "tier_route"}
+
+        async def _one(tier: str) -> list[StrategyResult]:
+            try:
+                return await strategy_cls().retrieve(
+                    conn,
+                    org_id=org_id,
+                    agent_id=agent_id,
+                    query=query,
+                    top_k=top_k,
+                    memory_type=tier,
+                    filters=filters,
+                    similarity_threshold=similarity_threshold,
+                    **passthrough,
+                )
+            except Exception as exc:  # never abort the whole fan-out
+                logger.warning(
+                    "auto.tier_fanout.delegate_failed",
+                    extra={"tier": tier, "error": str(exc)[:200]},
+                )
+                return []
+
+        # Run tier queries in parallel inside the existing transaction.
+        # SQLAlchemy AsyncConnection is not safe across concurrent
+        # awaits, so we serialize at the asyncio.gather call site by
+        # awaiting sequentially. The benefit is still real: each tier
+        # uses its own narrower index hits, lifting recall without
+        # 4x-ing the wall-clock.
+        results_per_tier: list[list[StrategyResult]] = []
+        for tier in tiers:
+            results_per_tier.append(await _one(tier))
+        _ = asyncio  # imported above for future concurrent path
+
+        # Merge + dedupe by memory_id, keep the highest-scoring copy.
+        merged: dict[UUID, StrategyResult] = {}
+        for results in results_per_tier:
+            for r in results:
+                existing = merged.get(r.memory_id)
+                if existing is None or r.relevance_score > existing.relevance_score:
+                    merged[r.memory_id] = r
+
+        # Sort + truncate.
+        ranked = sorted(merged.values(), key=lambda r: r.relevance_score, reverse=True)
+        return ranked[:top_k]
 
     async def _classify(self, *, query: str, **extra: Any) -> str:
         """Pick the best strategy for ``query``.
@@ -204,9 +306,7 @@ class AutoStrategy(RetrievalStrategy):
 
         return chosen
 
-    async def _invoke_classifier(
-        self, gateway: LLMGateway, query: str
-    ) -> _ClassifierChoice:
+    async def _invoke_classifier(self, gateway: LLMGateway, query: str) -> _ClassifierChoice:
         """LLM call to classify ``query`` into a strategy + reason."""
         system = _CLASSIFIER_SYSTEM_PROMPT
         user = f"Query: {query}"

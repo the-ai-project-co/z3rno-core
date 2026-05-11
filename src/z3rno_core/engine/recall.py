@@ -124,6 +124,11 @@ async def recall(
     # Off by default; servers gate via ``ALLOW_CYPHER_QUERY=true``.
     allow_cypher_query: bool = False,
     raw_cypher: str | None = None,
+    # Phase F slice 4: opt-in 4-tier memory routing. When True AND
+    # strategy='AUTO' AND memory_type is unset, the AutoStrategy asks
+    # the MemoryTierRouter for one or more tiers and fans the delegate
+    # strategy out across them. No-op for other strategies.
+    tier_route: bool = False,
     memory_type: str | None = None,
     filters: dict[str, Any] | None = None,
     top_k: int = 10,
@@ -200,6 +205,7 @@ async def recall(
         recency_weight=recency_weight,
         allow_cypher_query=allow_cypher_query,
         raw_cypher=raw_cypher,
+        tier_route=tier_route,
     )
 
     # --- Optional cross-encoder re-rank ---
