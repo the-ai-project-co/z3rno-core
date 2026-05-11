@@ -5,19 +5,29 @@ Hard delete: permanently removes memory, relationships, and graph data.
   Leaves only a GDPR-compliant audit stub with NO content.
 
 Safety: hard_delete requires explicit opt-in. Default is soft delete.
+
+Phase F slice 5: when ``signing_key`` is supplied, forget() also emits
+a row in ``forget_certificates`` — a Merkle-root + ed25519 signature
+receipt that a regulator / data-subject can later verify against the
+audit chain.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Any
-from uuid import UUID
+import hashlib
+from dataclasses import dataclass, field
+from datetime import UTC, datetime
+from typing import TYPE_CHECKING, Any
+from uuid import UUID, uuid4
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncConnection
 
 from z3rno_core.engine.audit import create_audit_entry
 from z3rno_core.graph.sync import delete_memory_from_graph
+
+if TYPE_CHECKING:
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 
 @dataclass(frozen=True)
@@ -28,6 +38,12 @@ class ForgetResult:
     hard_deleted: bool
     cascade_count: int
     memory_ids: list[UUID]
+    # Phase F slice 5: populated when forget() emits a proof-of-erasure
+    # certificate. ``None`` when ``signing_key`` was not supplied — the
+    # default path is unchanged.
+    cert_id: UUID | None = None
+    merkle_root: bytes = field(default=b"")
+    signer_key_id: str = ""
 
 
 class ForgetError(Exception):
@@ -45,6 +61,12 @@ async def forget(
     cascade: bool = False,
     cascade_depth: int = 1,
     reason: str | None = None,
+    # Phase F slice 5 — forget-with-proof. Opt-in: supply a loaded
+    # ed25519 private key + a stable ``signer_key_id`` and forget()
+    # will emit a row in ``forget_certificates``. Default ``None``
+    # preserves all pre-F.5 behavior.
+    signing_key: Ed25519PrivateKey | None = None,
+    signer_key_id: str = "",
     # Audit context
     user_id: UUID | None = None,
     api_key_id: UUID | None = None,
@@ -96,6 +118,13 @@ async def forget(
     # Deduplicate
     targets = list(set(targets))
 
+    # Phase F slice 5: snapshot content hashes BEFORE delete so the
+    # Merkle leaves can be reconstructed by an auditor. Hard delete
+    # would otherwise erase the source bytes irretrievably.
+    content_hashes: dict[UUID, str] = {}
+    if signing_key is not None:
+        content_hashes = await _snapshot_content_hashes(conn, org_id, targets)
+
     if hard_delete:
         deleted = await _hard_delete(conn, org_id, targets)
     else:
@@ -127,12 +156,135 @@ async def forget(
             request_id=request_id,
         )
 
+    # Phase F slice 5: cert emission. Best-effort, deliberately:
+    # the forget itself has already happened and committing the cert
+    # in the same transaction is desirable but a cert-write failure
+    # must not roll back a regulator-mandated erasure.
+    cert_id: UUID | None = None
+    merkle_root = b""
+    if signing_key is not None:
+        try:
+            cert_id, merkle_root = await _emit_forget_certificate(
+                conn,
+                org_id=org_id,
+                agent_id=agent_id,
+                memory_ids=targets,
+                content_hashes=content_hashes,
+                hard_delete=hard_delete,
+                signing_key=signing_key,
+                signer_key_id=signer_key_id or "default",
+            )
+        except Exception:
+            cert_id = None
+            merkle_root = b""
+
     return ForgetResult(
         deleted_count=deleted,
         hard_deleted=hard_delete,
         cascade_count=cascade_count,
         memory_ids=targets,
+        cert_id=cert_id,
+        merkle_root=merkle_root,
+        signer_key_id=signer_key_id if cert_id is not None else "",
     )
+
+
+async def _snapshot_content_hashes(
+    conn: AsyncConnection,
+    org_id: UUID,
+    memory_ids: list[UUID],
+) -> dict[UUID, str]:
+    """SHA-256 each Memo's current ``content`` before delete.
+
+    Soft-delete preserves the row but the cert should pin the value
+    that was in force at the moment of the forget — re-reading post
+    hard delete is impossible anyway. We compute it Python-side rather
+    than ``digest('sha256')`` SQL-side so the same code path applies
+    whether or not pgcrypto is loaded.
+    """
+    if not memory_ids:
+        return {}
+    id_list = ",".join(f"'{mid}'" for mid in memory_ids)
+    result = await conn.execute(
+        text(f"""
+            SELECT id, content
+            FROM memories
+            WHERE org_id = CAST('{org_id}' AS uuid)
+              AND id IN ({id_list})
+        """)
+    )
+    out: dict[UUID, str] = {}
+    for row in result.fetchall():
+        out[row[0]] = hashlib.sha256((row[1] or "").encode("utf-8")).hexdigest()
+    return out
+
+
+async def _emit_forget_certificate(
+    conn: AsyncConnection,
+    *,
+    org_id: UUID,
+    agent_id: UUID,
+    memory_ids: list[UUID],
+    content_hashes: dict[UUID, str],
+    hard_delete: bool,
+    signing_key: Ed25519PrivateKey,
+    signer_key_id: str,
+) -> tuple[UUID, bytes]:
+    """Build the cert, sign it, INSERT, return (cert_id, merkle_root)."""
+    from z3rno_core.forget_proof import (  # noqa: PLC0415 — optional path
+        ForgetCertificate,
+        build_leaves,
+        build_merkle_root,
+        sign_certificate,
+    )
+
+    cert_id = uuid4()
+    signed_at = datetime.now(UTC)
+    leaves = build_leaves(memory_ids=memory_ids, content_hashes=content_hashes)
+    root = build_merkle_root(leaves)
+
+    cert = ForgetCertificate(
+        cert_id=cert_id,
+        org_id=org_id,
+        memory_ids=tuple(memory_ids),
+        merkle_root=root,
+        signer_key_id=signer_key_id,
+        signed_at=signed_at,
+        hard_delete=hard_delete,
+        agent_id=agent_id,
+    )
+    signature = sign_certificate(cert, signing_key)
+
+    await conn.execute(
+        text("""
+            INSERT INTO forget_certificates (
+                cert_id, org_id, agent_id, memory_ids,
+                merkle_root, signature, signer_key_id,
+                audit_seq_start, audit_seq_end,
+                hard_delete, signed_at
+            ) VALUES (
+                CAST(:cert_id AS uuid),
+                CAST(:org_id AS uuid),
+                CAST(:agent_id AS uuid),
+                CAST(:memory_ids AS uuid[]),
+                :merkle_root, :signature, :signer_key_id,
+                NULL, NULL,
+                :hard_delete, :signed_at
+            )
+        """),
+        {
+            "cert_id": str(cert_id),
+            "org_id": str(org_id),
+            "agent_id": str(agent_id),
+            "memory_ids": [str(m) for m in memory_ids],
+            "merkle_root": root,
+            "signature": signature,
+            "signer_key_id": signer_key_id,
+            "hard_delete": hard_delete,
+            "signed_at": signed_at,
+        },
+    )
+    return cert_id, root
 
 
 async def _soft_delete(
