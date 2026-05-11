@@ -29,6 +29,7 @@ Default safety filters (always applied unless overridden):
 
 from __future__ import annotations
 
+import asyncio
 import time
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -36,7 +37,7 @@ from typing import Any
 from uuid import UUID
 
 from sqlalchemy import text
-from sqlalchemy.ext.asyncio import AsyncConnection
+from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine
 
 # Import strategies package as a side-effect — registers VECTOR, LEXICAL,
 # AUTO with the registry. Doing this here (rather than in
@@ -152,6 +153,15 @@ async def recall(
     # When None, both phases share ``conn`` (legacy single-conn
     # callers stay byte-identical).
     write_conn: AsyncConnection | None = None,
+    # v0.20.5 — opt-in fire-and-forget recall_count bump. When
+    # ``write_engine`` is supplied AND ``bump_counters_async`` is
+    # True, the counter UPDATE runs on a fresh conn from
+    # ``write_engine`` inside an ``asyncio.create_task``; the
+    # response returns without awaiting it. Drops recall p95 by the
+    # primary-roundtrip tail (~5-10ms). The audit row stays
+    # synchronous because the hash chain is order-sensitive.
+    write_engine: Any = None,
+    bump_counters_async: bool = False,
     top_k: int = 10,
     similarity_threshold: float = 0.0,
     time_range: tuple[datetime, datetime] | None = None,
@@ -275,21 +285,33 @@ async def recall(
     write_target = write_conn or conn
     if results:
         memory_ids = sorted(str(r.memory_id) for r in results)
-        await write_target.execute(
-            text("""
-                UPDATE public.memories
-                SET recall_count = recall_count + 1,
-                    last_recalled_at = now(),
-                    updated_at = now()
-                WHERE id IN (
-                    SELECT id FROM public.memories
-                    WHERE id = ANY(CAST(:ids AS uuid[]))
-                    ORDER BY id
-                    FOR NO KEY UPDATE
-                )
-            """),
-            {"ids": memory_ids},
-        )
+        if bump_counters_async and write_engine is not None:
+            # v0.20.5 — fire-and-forget on a fresh conn from the
+            # primary engine. Strong-ref the task so it isn't GC'd
+            # before it runs; failures are swallowed because a
+            # missed counter bump is recoverable (worst case: the
+            # next recall sees a slightly stale count).
+            task = asyncio.create_task(
+                _bump_counters_async(write_engine, memory_ids, org_id)
+            )
+            _IN_FLIGHT_BUMPS.add(task)
+            task.add_done_callback(_IN_FLIGHT_BUMPS.discard)
+        else:
+            await write_target.execute(
+                text("""
+                    UPDATE public.memories
+                    SET recall_count = recall_count + 1,
+                        last_recalled_at = now(),
+                        updated_at = now()
+                    WHERE id IN (
+                        SELECT id FROM public.memories
+                        WHERE id = ANY(CAST(:ids AS uuid[]))
+                        ORDER BY id
+                        FOR NO KEY UPDATE
+                    )
+                """),
+                {"ids": memory_ids},
+            )
 
     # --- Audit log ---
     # ``strategies_considered`` captures AUTO's routing decision. AUTO
@@ -371,3 +393,55 @@ def _fallback_query(where_clause: str) -> str:
         ORDER BY importance_score DESC, created_at DESC
         LIMIT :top_k
     """
+
+
+# ---------------------------------------------------------------------------
+# v0.20.5 — fire-and-forget recall_count bump
+# ---------------------------------------------------------------------------
+
+# Strong refs on in-flight async bump tasks so they aren't GC'd before
+# they run. asyncio.create_task otherwise lets the task be collected as
+# soon as the local reference goes out of scope.
+_IN_FLIGHT_BUMPS: set[asyncio.Task[None]] = set()
+
+
+async def _bump_counters_async(
+    write_engine: AsyncEngine,
+    memory_ids: list[str],
+    org_id: UUID,
+) -> None:
+    """Open a fresh conn on the primary engine and run the
+    ``recall_count`` UPDATE. Failures are swallowed: a missed bump
+    is recoverable (the next recall sees a slightly stale count).
+
+    Runs out-of-band so the recall response returns before the
+    primary roundtrip completes. ``set_org_context`` is re-applied
+    because the conn is fresh.
+    """
+    try:
+        async with write_engine.connect() as conn:
+            await conn.execute(text("SET LOCAL ROLE z3rno_app"))
+            await conn.execute(
+                text(f"SET LOCAL app.current_org_id = '{org_id}'")
+            )
+            await conn.execute(
+                text("""
+                    UPDATE public.memories
+                    SET recall_count = recall_count + 1,
+                        last_recalled_at = now(),
+                        updated_at = now()
+                    WHERE id IN (
+                        SELECT id FROM public.memories
+                        WHERE id = ANY(CAST(:ids AS uuid[]))
+                        ORDER BY id
+                        FOR NO KEY UPDATE
+                    )
+                """),
+                {"ids": memory_ids},
+            )
+            await conn.commit()
+    except Exception:
+        # Swallow: a counter miss is recoverable. Logging is intentionally
+        # delegated to the caller's structlog setup; this module has no
+        # logger of its own.
+        pass
