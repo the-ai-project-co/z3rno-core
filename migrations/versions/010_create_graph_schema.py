@@ -32,7 +32,13 @@ EDGE_LABELS = [
 def upgrade() -> None:
     # Ensure AGE functions are accessible
     op.execute("LOAD 'age'")
-    op.execute('SET search_path = ag_catalog, "$user", public')
+    # SET LOCAL — scoped to this migration's transaction only.
+    # A bare SET persists for the rest of the alembic connection and
+    # caused every subsequent unqualified CREATE TABLE (migration 015's
+    # distill_jobs is the famous case) to land in ag_catalog instead
+    # of public. transaction_per_migration in env.py keeps each
+    # migration in its own transaction so LOCAL is enough.
+    op.execute('SET LOCAL search_path = ag_catalog, "$user", public')
 
     # Create the graph
     op.execute(f"SELECT create_graph('{GRAPH_NAME}')")
@@ -48,5 +54,11 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     op.execute("LOAD 'age'")
-    op.execute('SET search_path = ag_catalog, "$user", public')
+    # SET LOCAL — scoped to this migration's transaction only.
+    # A bare SET persists for the rest of the alembic connection and
+    # caused every subsequent unqualified CREATE TABLE (migration 015's
+    # distill_jobs is the famous case) to land in ag_catalog instead
+    # of public. transaction_per_migration in env.py keeps each
+    # migration in its own transaction so LOCAL is enough.
+    op.execute('SET LOCAL search_path = ag_catalog, "$user", public')
     op.execute(f"SELECT drop_graph('{GRAPH_NAME}', true)")

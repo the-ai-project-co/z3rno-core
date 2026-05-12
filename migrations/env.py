@@ -51,11 +51,29 @@ def run_migrations_offline() -> None:
 
 def run_migrations_online() -> None:
     """Run migrations against a live database."""
+    from sqlalchemy import event  # noqa: PLC0415
+
     connectable = engine_from_config(
         config.get_section(config.config_ini_section, {}),
         prefix="sqlalchemy.",
         poolclass=pool.NullPool,
     )
+
+    # v0.20.2 — force public-first search_path on every new connection.
+    # Apache AGE (loaded by migration 010) sets
+    # ``search_path = ag_catalog, "$user", public`` at the session
+    # level; without overriding it on connect, every subsequent
+    # unqualified CREATE TABLE lands in ag_catalog instead of public,
+    # and the matching ``ALTER TABLE public.x ENABLE ROW LEVEL
+    # SECURITY`` lines later in the same migration blow up with
+    # ``UndefinedTable``. Migration 015 (distill_jobs) is the famous
+    # case. The event fires before any migration runs, so the default
+    # is set before alembic's per-migration transactions begin.
+    @event.listens_for(connectable, "connect")
+    def _set_search_path(dbapi_conn, _conn_record):  # type: ignore[no-untyped-def]
+        cur = dbapi_conn.cursor()
+        cur.execute("SET search_path = public, ag_catalog")
+        cur.close()
 
     with connectable.connect() as connection:
         context.configure(
@@ -63,20 +81,13 @@ def run_migrations_online() -> None:
             target_metadata=target_metadata,
             compare_type=True,
             compare_server_default=True,
+            # One transaction per migration so any migration-local
+            # ``SET LOCAL search_path = ...`` (e.g. migration 010's
+            # AGE setup) doesn't leak forward into the next migration.
+            transaction_per_migration=True,
         )
 
         with context.begin_transaction():
-            # Force search_path to start with public so unqualified DDL
-            # lands in the right schema. The z3rno-postgres image
-            # pre-installs Apache AGE which prepends `ag_catalog` to
-            # the role's search_path; without this override every
-            # CREATE TABLE in a fresh DB silently lands in ag_catalog
-            # and breaks subsequent ALTER TABLE statements that *do*
-            # qualify ``public``. Issued inside the transaction so it
-            # piggy-backs the same commit as the migrations themselves.
-            from sqlalchemy import text as _sa_text  # noqa: PLC0415
-
-            connection.execute(_sa_text("SET LOCAL search_path = public"))
             context.run_migrations()
 
 
