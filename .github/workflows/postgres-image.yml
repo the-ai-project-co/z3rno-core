@@ -72,7 +72,7 @@ jobs:
             org.opencontainers.image.source=https://github.com/the-ai-project-co/z3rno-core
             org.opencontainers.image.licenses=Apache-2.0
 
-      - name: Build and push
+      - name: Build and push (org namespace)
         uses: docker/build-push-action@v6
         with:
           context: docker/postgres
@@ -83,6 +83,51 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
           platforms: linux/amd64  # arm64 can be added once pgvectorscale publishes arm64 binaries
+
+      # v0.21.3 — public mirror at ghcr.io/safayavatsal/z3rno-postgres.
+      # Same shape as the server image's mirror — the org-namespace
+      # package is private (UI-only visibility flip, blocked in our
+      # org admin flow), so anonymous pulls fail. The personal
+      # safayavatsal namespace is public; needs ``MIRROR_GHCR_PAT``
+      # (write:packages PAT under the safayavatsal account) as a
+      # repo secret. Steps skip cleanly when the secret is absent.
+      - name: Log in to mirror namespace
+        if: github.event_name != 'pull_request' && env.MIRROR_PAT != ''
+        env:
+          MIRROR_PAT: ${{ secrets.MIRROR_GHCR_PAT }}
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: safayavatsal
+          password: ${{ secrets.MIRROR_GHCR_PAT }}
+
+      - name: Mirror metadata (safayavatsal namespace)
+        id: mirror_meta
+        if: github.event_name != 'pull_request' && env.MIRROR_PAT != ''
+        env:
+          MIRROR_PAT: ${{ secrets.MIRROR_GHCR_PAT }}
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/safayavatsal/z3rno-postgres
+          tags: |
+            type=raw,value=17
+            type=raw,value=17-{{date 'YYYYMMDD'}}
+            type=sha,prefix=17-,format=short
+
+      - name: Build and push (public mirror)
+        if: github.event_name != 'pull_request' && env.MIRROR_PAT != ''
+        env:
+          MIRROR_PAT: ${{ secrets.MIRROR_GHCR_PAT }}
+        uses: docker/build-push-action@v6
+        with:
+          context: docker/postgres
+          file: docker/postgres/Dockerfile
+          push: true
+          tags: ${{ steps.mirror_meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          platforms: linux/amd64
 
   smoke-test:
     name: Smoke test (extensions load)
