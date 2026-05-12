@@ -7,7 +7,7 @@ build-backend = "hatchling.build"
 # =============================================================================
 [project]
 name = "z3rno-core"
-version = "0.20.1"
+version = "0.20.2"
 description = "Core memory engine for Z3rno: PostgreSQL schema, SQLAlchemy models, Alembic migrations, and the store/recall/forget/audit library functions."
 readme = "README.md"
 license = { text = "Apache-2.0" }
@@ -175,9 +175,21 @@ Issues = "https://github.com/the-ai-project-co/z3rno-core/issues"
 [tool.hatch.build.targets.wheel]
 packages = ["src/z3rno_core"]
 
+# v0.20.2 — ship the alembic migration tree + ini inside the wheel so
+# downstream containers (z3rno-server image, helm-managed deploys)
+# can run ``alembic upgrade head`` against the installed package
+# without needing the source repo on disk. Closes Bug F from
+# operator-notes/V0-20-STARTER-KIT-SMOKE-2026-05-12.md. The runtime
+# entry point is ``z3rno_core.alembic_helpers.upgrade_to_head``.
+[tool.hatch.build.targets.wheel.force-include]
+"migrations" = "z3rno_core/_alembic/migrations"
+"alembic.ini" = "z3rno_core/_alembic/alembic.ini"
+
 [tool.hatch.build.targets.sdist]
 include = [
   "src/z3rno_core",
+  "migrations",
+  "alembic.ini",
   "tests",
   "docs",
   "README.md",
