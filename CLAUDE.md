@@ -48,6 +48,8 @@ make seed                        # Load dev seed data
 - `../z3rno-process-docs/improvements/references/PHASE-D-IMPLEMENTATION.md` — full operator reference for refine + ontology + codegraph
 - `../z3rno-docs/concepts/verbs.mdx` — canonical Z3rno verb table (store / recall / forget / audit / ingest / distill / refine)
 
+Process docs are subfoldered by lifecycle stage under `../z3rno-process-docs/improvements/`: `plans/` (original phase planning), `references/` (as-shipped operator refs + glossary), `changelogs/` (per-release), `operator-notes/` (dated runs), `status/` (OPEN-WORK + SHIPPED-STATUS + PHASE-3-DEFERRED-TESTS). Start at `improvements/README.md` for the index or `improvements/status/SHIPPED-STATUS.md` for current state.
+
 ## Phase A — Forge (opt-in)
 
 The Forge pipeline is dormant until the operator sets `DISTILL_ENABLED=true` in the server tier. With the flag off:
