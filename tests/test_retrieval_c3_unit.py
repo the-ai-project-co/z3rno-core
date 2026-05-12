@@ -207,6 +207,69 @@ class TestAutoDelegation:
         assert results == []
         assert auto.delegated_to == "LEXICAL"
 
+    async def test_empty_graph_downgrades_to_vector(self) -> None:
+        """v0.21.3 — classifier picks GRAPH but tenant has no AGE corpus.
+
+        AUTO downgrades to VECTOR so first-time users don't see 0
+        results on a fresh DB. Closes UX trap #7 from
+        V0-21-2-AS-A-USER-2026-05-12.
+        """
+        gateway = StubLLMGateway(
+            structured=_structured_factory_returning(
+                _ClassifierChoice(strategy="GRAPH", reason="relational hop")
+            )
+        )
+        empty_row = MagicMock()
+        empty_row.first.return_value = None
+        empty_result = MagicMock()
+        empty_result.fetchall.return_value = []
+        conn = AsyncMock()
+        conn.execute = AsyncMock(side_effect=[empty_row, empty_result])
+
+        from z3rno_core.retrieval.strategies import auto as auto_mod
+        auto_mod._GRAPH_CORPUS_CACHE.clear()
+
+        auto = AutoStrategy()
+        await auto.retrieve(
+            conn,
+            org_id=uuid4(),
+            agent_id=uuid4(),
+            query="how are A and B related?",
+            top_k=5,
+            llm_gateway=gateway,
+        )
+        assert auto.delegated_to == "VECTOR"
+        assert "downgraded from GRAPH" in auto.classifier_reason
+
+    async def test_existing_graph_keeps_graph_choice(self) -> None:
+        """v0.21.3 — when AGE rows exist, AUTO honours the GRAPH pick."""
+        gateway = StubLLMGateway(
+            structured=_structured_factory_returning(
+                _ClassifierChoice(strategy="GRAPH", reason="relational hop")
+            )
+        )
+        has_row = MagicMock()
+        has_row.first.return_value = (1,)
+        empty_result = MagicMock()
+        empty_result.fetchall.return_value = []
+        conn = AsyncMock()
+        conn.execute = AsyncMock(side_effect=[has_row] + [empty_result] * 5)
+
+        from z3rno_core.retrieval.strategies import auto as auto_mod
+        auto_mod._GRAPH_CORPUS_CACHE.clear()
+
+        auto = AutoStrategy()
+        await auto.retrieve(
+            conn,
+            org_id=uuid4(),
+            agent_id=uuid4(),
+            query="how are A and B related?",
+            top_k=5,
+            llm_gateway=gateway,
+        )
+        assert auto.delegated_to == "GRAPH"
+        assert "downgraded" not in auto.classifier_reason
+
     async def test_classifier_cache_hit_skips_llm(self) -> None:
         """When the cache returns a value, the LLM isn't called."""
 

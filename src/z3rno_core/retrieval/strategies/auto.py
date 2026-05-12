@@ -26,10 +26,12 @@ so historical queries can be analysed by strategy.
 from __future__ import annotations
 
 import logging
+import time
 from typing import Any
 from uuid import UUID
 
 from pydantic import BaseModel, Field
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncConnection
 
 from z3rno_core.distill.llm_gateway import LLMGateway, LLMGatewayError
@@ -88,6 +90,59 @@ _AUTO_CANDIDATE_STRATEGIES = (
     "ASK",
 )
 
+# Strategies that require a Forge-distilled corpus to return anything
+# meaningful. On a fresh tenant (or any tenant that hasn't run distill
+# yet), these strategies have no rows to traverse and silently return
+# 0 results. v0.21.3 — when the AUTO classifier picks one of these,
+# probe ``memory_relationships`` first; if empty for this (org, agent),
+# downgrade to VECTOR. Closes UX trap #7 from
+# V0-21-2-AS-A-USER-2026-05-12.
+_GRAPH_DEPENDENT_STRATEGIES = frozenset({"GRAPH", "TRIPLET", "TRACE", "ASK"})
+
+# Process-local TTL cache of "does this (org, agent) have a Forge
+# corpus?". Keyed by ``(org_id, agent_id)``. Value is
+# ``(checked_at_monotonic, has_graph_corpus)``. The check is one
+# ``SELECT 1 FROM memory_relationships ... LIMIT 1`` — cheap, but no
+# need to repeat it every recall. TTL is short enough that the moment
+# a tenant lands its first distill, the next 60 s of recalls catch up.
+_GRAPH_CORPUS_CACHE: dict[tuple[str, str], tuple[float, bool]] = {}
+_GRAPH_CORPUS_TTL_SECONDS = 60.0
+
+
+async def _has_graph_corpus(
+    conn: AsyncConnection, *, org_id: UUID, agent_id: UUID
+) -> bool:
+    """Return True when the (org_id, agent_id) has any AGE-projected edges.
+
+    Probes ``memory_relationships`` (the canonical edge table that
+    Forge distill, refine, and graph_writer all write to). Caches
+    the answer per (org, agent) for ``_GRAPH_CORPUS_TTL_SECONDS``.
+    On any DB error, returns True conservatively — "we don't know, let
+    the chosen strategy try" — so this can never make AUTO worse than
+    the pre-fix behaviour.
+    """
+    key = (str(org_id), str(agent_id))
+    now = time.monotonic()
+    cached = _GRAPH_CORPUS_CACHE.get(key)
+    if cached is not None and now - cached[0] < _GRAPH_CORPUS_TTL_SECONDS:
+        return cached[1]
+    try:
+        result = await conn.execute(
+            text(
+                "SELECT 1 FROM memory_relationships "
+                "WHERE org_id = CAST(:o AS uuid) AND agent_id = CAST(:a AS uuid) "
+                "LIMIT 1"
+            ),
+            {"o": str(org_id), "a": str(agent_id)},
+        )
+        has_corpus = result.first() is not None
+    except Exception:  # noqa: BLE001
+        # DB hiccup, AGE not loaded, schema mid-migration — don't
+        # downgrade based on a probe we couldn't run.
+        return True
+    _GRAPH_CORPUS_CACHE[key] = (now, has_corpus)
+    return has_corpus
+
 
 @register_strategy
 class AutoStrategy(RetrievalStrategy):
@@ -122,6 +177,29 @@ class AutoStrategy(RetrievalStrategy):
         **extra: Any,
     ) -> list[StrategyResult]:
         chosen = await self._classify(query=query, **extra)
+
+        # v0.21.3 — empty-graph downgrade. If the LLM classifier picked
+        # a graph-dependent strategy but this tenant has no AGE corpus
+        # yet (pre-distill state — the common first-five-minutes
+        # experience), the chosen strategy would return 0 results
+        # despite having relevant vector candidates. Probe + downgrade
+        # to VECTOR so first-time users see hits on day one. Closes
+        # UX trap #7 from V0-21-2-AS-A-USER-2026-05-12.
+        if chosen in _GRAPH_DEPENDENT_STRATEGIES:
+            has_corpus = await _has_graph_corpus(
+                conn, org_id=org_id, agent_id=agent_id
+            )
+            if not has_corpus:
+                logger.info(
+                    "auto.classifier.downgrade_no_graph_corpus",
+                    extra={"original": chosen, "downgrade_to": "VECTOR"},
+                )
+                self.classifier_reason = (
+                    f"{self.classifier_reason or 'llm'} | "
+                    f"downgraded from {chosen} (no graph corpus)"
+                )
+                chosen = "VECTOR"
+
         self.delegated_to = chosen
 
         try:
