@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import os
-from collections.abc import AsyncGenerator, Generator
+from collections.abc import Generator
 from uuid import UUID, uuid4
 
 import pytest

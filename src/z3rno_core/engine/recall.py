@@ -211,7 +211,7 @@ async def recall(
     # v0.21.2 — honour the deprecated ``filters`` kwarg with a one-shot
     # warning. ``metadata_filter`` wins if both are passed.
     if filters is not None and metadata_filter is None:
-        import warnings  # noqa: PLC0415
+        import warnings
 
         warnings.warn(
             "engine.recall(filters=...) is deprecated; use metadata_filter=... instead. "

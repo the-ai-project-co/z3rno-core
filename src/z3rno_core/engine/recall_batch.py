@@ -117,7 +117,7 @@ class RecallCountBatcher:
         if self._drain_task is not None and not self._drain_task.done():
             try:
                 await asyncio.wait_for(self._drain_task, timeout=2.0)
-            except (asyncio.TimeoutError, asyncio.CancelledError):
+            except (TimeoutError, asyncio.CancelledError):
                 self._drain_task.cancel()
 
     # ------------------------------------------------------------------
@@ -132,7 +132,7 @@ class RecallCountBatcher:
                 await asyncio.wait_for(
                     self._wake.wait(), timeout=self._window_seconds
                 )
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 pass
             self._wake.clear()
             if self._pending:
@@ -179,7 +179,7 @@ class RecallCountBatcher:
                         {"ids": ids, "deltas": counts},
                     )
                     await conn.commit()
-            except Exception:  # noqa: BLE001
+            except Exception:
                 # Log + drop. A missed bump is recoverable; a retry
                 # storm on a flapping primary is not.
                 logger.warning(
@@ -208,7 +208,7 @@ def get_batcher(
     regardless of the engine argument. That matches our deployment
     reality (one primary engine per process) and keeps tests simple.
     """
-    global _BATCHER
+    global _BATCHER  # noqa: PLW0603 — singleton pattern, see module docstring
     if _BATCHER is None:
         _BATCHER = RecallCountBatcher(
             engine, window_ms=window_ms, max_queue=max_queue
@@ -218,7 +218,7 @@ def get_batcher(
 
 async def shutdown_batcher() -> None:
     """Hook for the worker shutdown signal handler."""
-    global _BATCHER
+    global _BATCHER  # noqa: PLW0603 — singleton pattern, see module docstring
     if _BATCHER is not None:
         await _BATCHER.flush_pending()
         await _BATCHER.aclose()
@@ -227,5 +227,5 @@ async def shutdown_batcher() -> None:
 
 def _reset_for_tests() -> None:
     """Clear the singleton. Tests only."""
-    global _BATCHER
+    global _BATCHER  # noqa: PLW0603 — singleton pattern, see module docstring
     _BATCHER = None
