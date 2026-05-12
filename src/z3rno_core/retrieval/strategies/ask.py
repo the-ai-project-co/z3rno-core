@@ -273,7 +273,6 @@ def _execute_cypher_sync(
 ) -> tuple[list[UUID], float | None]:
     """Run validated Cypher inside an AGE savepoint. Returns (ids, aggregate_value)."""
     safe_org = _validate_uuid_for_cypher(org_id)
-    preamble = "LOAD 'age'; SET search_path = ag_catalog, \"$user\", public;"
 
     # Inject the org_id filter and a hard LIMIT. The validator above
     # has already rejected anything with $$ in the LLM-emitted cypher,
@@ -283,7 +282,6 @@ def _execute_cypher_sync(
     # didn't include one. This is a best-effort sandwich; production
     # operators should also constrain via a dedicated AGE role.
     wrapped = (
-        f"{preamble} "
         f"SELECT * FROM cypher('{_GRAPH_NAME}', $$ "
         f"{cypher} "
         f"$$) AS (col agtype) LIMIT {int(limit)}"
@@ -292,6 +290,9 @@ def _execute_cypher_sync(
     ids: list[UUID] = []
     aggregate: float | None = None
     with conn.begin_nested():
+        # v0.21.1 — LOAD + SET as separate statements; see Bug G.
+        conn.execute(text("LOAD 'age'"))
+        conn.execute(text('SET search_path = ag_catalog, "$user", public'))
         result = conn.execute(text(wrapped))
         for row in result.fetchall():
             value = _parse_agtype(row[0])

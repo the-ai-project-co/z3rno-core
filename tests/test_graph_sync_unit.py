@@ -14,7 +14,7 @@ import pytest
 
 from z3rno_core.graph.sync import (
     GRAPH_NAME,
-    _age_preamble,
+    _age_exec,
     _validate_uuid_for_cypher,
     delete_memory_from_graph,
     sync_memory_to_graph,
@@ -74,25 +74,33 @@ class TestValidateUuidForCypher:
 
 
 # ---------------------------------------------------------------------------
-# _age_preamble
+# _age_exec — v0.21.1 replacement for _age_preamble
 # ---------------------------------------------------------------------------
 
 
-class TestAgePreamble:
-    """Test the AGE preamble SQL."""
+class TestAgeExec:
+    """Verify _age_exec issues LOAD + SET + cypher as three calls (Bug G)."""
 
-    def test_returns_string(self) -> None:
-        assert isinstance(_age_preamble(), str)
+    def test_issues_load_then_set_then_cypher(self) -> None:
+        conn = MagicMock()
+        _age_exec(conn, "SELECT * FROM cypher('g', $$ RETURN 1 $$) AS (v agtype)")
+        stmts = [str(call.args[0]) for call in conn.execute.call_args_list]
+        assert len(stmts) == 3
+        assert stmts[0] == "LOAD 'age'"
+        assert stmts[1] == 'SET search_path = ag_catalog, "$user", public'
+        assert "cypher(" in stmts[2]
 
-    def test_loads_age_extension(self) -> None:
-        assert "LOAD 'age'" in _age_preamble()
-
-    def test_sets_search_path(self) -> None:
-        assert "SET search_path" in _age_preamble()
-        assert "ag_catalog" in _age_preamble()
-
-    def test_includes_public_schema(self) -> None:
-        assert "public" in _age_preamble()
+    def test_each_statement_single_command(self) -> None:
+        """Pre-fix concatenated all three into one — caught by asyncpg's
+        prepared-statement protocol. The new shape never emits a single
+        SQL string containing more than one semicolon-separated command."""
+        conn = MagicMock()
+        _age_exec(conn, "SELECT * FROM cypher('g', $$ RETURN 1 $$) AS (v agtype)")
+        for call in conn.execute.call_args_list:
+            sql = str(call.args[0])
+            # Strip the cypher's internal $$...$$ block before counting
+            # semicolons — the wrapping SELECT is one command.
+            assert sql.count(";") == 0, f"multi-command leaked: {sql!r}"
 
 
 # ---------------------------------------------------------------------------
@@ -130,8 +138,9 @@ class TestSyncMemoryToGraph:
             memory_type="episodic",
         )
 
-        conn.execute.assert_called_once()
-        call_args = conn.execute.call_args[0][0]
+        assert conn.execute.call_count == 3
+        # The cypher is the third (last) execute; LOAD + SET are the first two.
+        call_args = conn.execute.call_args_list[-1].args[0]
         sql_text = str(call_args.text)
 
         assert "MERGE (m:Memory" in sql_text
@@ -139,7 +148,7 @@ class TestSyncMemoryToGraph:
         assert str(org_id) in sql_text
         assert str(agent_id) in sql_text
         assert "episodic" in sql_text
-        assert "LOAD 'age'" in sql_text
+        assert "LOAD 'age'" == str(conn.execute.call_args_list[0].args[0].text)
 
     def test_with_content_preview(self) -> None:
         """Content preview is included and truncated."""
@@ -156,7 +165,8 @@ class TestSyncMemoryToGraph:
             content_preview=preview,
         )
 
-        call_args = conn.execute.call_args[0][0]
+        # The cypher is the third (last) execute; LOAD + SET are the first two.
+        call_args = conn.execute.call_args_list[-1].args[0]
         sql_text = str(call_args.text)
         assert "This is a test memory content" in sql_text
 
@@ -174,7 +184,8 @@ class TestSyncMemoryToGraph:
             content_preview=long_content,
         )
 
-        call_args = conn.execute.call_args[0][0]
+        # The cypher is the third (last) execute; LOAD + SET are the first two.
+        call_args = conn.execute.call_args_list[-1].args[0]
         sql_text = str(call_args.text)
         # The preview should be at most 200 x's
         # Count occurrences of 'x' between quotes
@@ -193,7 +204,7 @@ class TestSyncMemoryToGraph:
             content_preview=None,
         )
 
-        conn.execute.assert_called_once()
+        assert conn.execute.call_count == 3
 
     def test_single_quotes_escaped(self) -> None:
         """Single quotes in preview are escaped."""
@@ -208,7 +219,8 @@ class TestSyncMemoryToGraph:
             content_preview="it's a test",
         )
 
-        call_args = conn.execute.call_args[0][0]
+        # The cypher is the third (last) execute; LOAD + SET are the first two.
+        call_args = conn.execute.call_args_list[-1].args[0]
         sql_text = str(call_args.text)
         assert "it\\'s a test" in sql_text
 
@@ -224,7 +236,8 @@ class TestSyncMemoryToGraph:
             memory_type="episodic",
         )
 
-        call_args = conn.execute.call_args[0][0]
+        # The cypher is the third (last) execute; LOAD + SET are the first two.
+        call_args = conn.execute.call_args_list[-1].args[0]
         sql_text = str(call_args.text)
         assert "MERGE" in sql_text
 
@@ -244,14 +257,15 @@ class TestDeleteMemoryFromGraph:
 
         delete_memory_from_graph(conn, memory_id=mid)
 
-        conn.execute.assert_called_once()
-        call_args = conn.execute.call_args[0][0]
+        assert conn.execute.call_count == 3
+        # The cypher is the third (last) execute; LOAD + SET are the first two.
+        call_args = conn.execute.call_args_list[-1].args[0]
         sql_text = str(call_args.text)
 
         assert "MATCH (m:Memory" in sql_text
         assert "DETACH DELETE m" in sql_text
         assert str(mid) in sql_text
-        assert "LOAD 'age'" in sql_text
+        assert "LOAD 'age'" == str(conn.execute.call_args_list[0].args[0].text)
 
     def test_uses_graph_name(self) -> None:
         """Uses the GRAPH_NAME constant."""
@@ -260,7 +274,8 @@ class TestDeleteMemoryFromGraph:
 
         delete_memory_from_graph(conn, memory_id=mid)
 
-        call_args = conn.execute.call_args[0][0]
+        # The cypher is the third (last) execute; LOAD + SET are the first two.
+        call_args = conn.execute.call_args_list[-1].args[0]
         sql_text = str(call_args.text)
         assert GRAPH_NAME in sql_text
 
@@ -286,8 +301,9 @@ class TestSyncRelationshipToGraph:
             relationship_type="derived_from",
         )
 
-        conn.execute.assert_called_once()
-        call_args = conn.execute.call_args[0][0]
+        assert conn.execute.call_count == 3
+        # The cypher is the third (last) execute; LOAD + SET are the first two.
+        call_args = conn.execute.call_args_list[-1].args[0]
         sql_text = str(call_args.text)
 
         assert str(source) in sql_text
@@ -307,7 +323,8 @@ class TestSyncRelationshipToGraph:
             relationship_type="related_to",
         )
 
-        call_args = conn.execute.call_args[0][0]
+        # The cypher is the third (last) execute; LOAD + SET are the first two.
+        call_args = conn.execute.call_args_list[-1].args[0]
         sql_text = str(call_args.text)
         assert "RELATED_TO" in sql_text
         assert "related_to" not in sql_text.split("$$")[1]  # Inside Cypher
@@ -324,7 +341,8 @@ class TestSyncRelationshipToGraph:
             weight=0.75,
         )
 
-        call_args = conn.execute.call_args[0][0]
+        # The cypher is the third (last) execute; LOAD + SET are the first two.
+        call_args = conn.execute.call_args_list[-1].args[0]
         sql_text = str(call_args.text)
         assert "0.75" in sql_text
 
@@ -339,7 +357,8 @@ class TestSyncRelationshipToGraph:
             relationship_type="contradicts",
         )
 
-        call_args = conn.execute.call_args[0][0]
+        # The cypher is the third (last) execute; LOAD + SET are the first two.
+        call_args = conn.execute.call_args_list[-1].args[0]
         sql_text = str(call_args.text)
         assert "1.0" in sql_text
 
@@ -354,6 +373,7 @@ class TestSyncRelationshipToGraph:
             relationship_type="related_to",
         )
 
-        call_args = conn.execute.call_args[0][0]
+        # The cypher is the third (last) execute; LOAD + SET are the first two.
+        call_args = conn.execute.call_args_list[-1].args[0]
         sql_text = str(call_args.text)
         assert GRAPH_NAME in sql_text

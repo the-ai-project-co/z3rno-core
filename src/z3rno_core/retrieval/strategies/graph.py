@@ -296,18 +296,19 @@ def _fetch_subgraph_sync(
     edges: list[dict[str, Any]] = []
 
     with conn.begin_nested():
-        # LOAD + SET search_path + cypher() in one statement isn't legal
-        # under asyncpg's prepared-statement protocol — sync psycopg
-        # connections (which is what run_sync hands us once unwrapped)
-        # accept multi-statement strings. Use the same preamble shape as
-        # graph/queries.py.
-        preamble = "LOAD 'age'; SET search_path = ag_catalog, \"$user\", public;"
+        # v0.21.1 — issue LOAD + SET as separate statements before
+        # each cypher() exec. asyncpg rejects multi-command prepared
+        # statements; pre-fix the preamble was concatenated into the
+        # cypher string and every AGE query silently failed (caught
+        # by the outer savepoint). Bug G in
+        # V0-21-STARTER-KIT-SMOKE-2026-05-12.md.
+        conn.execute(text("LOAD 'age'"))
+        conn.execute(text('SET search_path = ag_catalog, "$user", public'))
 
         # Subgraph as nodes + edges. Cap nodes per seed to keep response
         # size bounded — operators on huge graphs can tune via the
         # subgraph_node_limit kwarg, exposed in C.3 if needed.
         node_sql = (
-            f"{preamble} "
             f"SELECT * FROM cypher('{_GRAPH_NAME}', $$ "
             f"MATCH (m:Memory {{id: '{safe_seed}', org_id: '{safe_org}'}})"
             f"-[r*1..{hops}]-(n:Memory) "
@@ -325,7 +326,6 @@ def _fetch_subgraph_sync(
             })
 
         edge_sql = (
-            f"{preamble} "
             f"SELECT * FROM cypher('{_GRAPH_NAME}', $$ "
             f"MATCH (m:Memory {{id: '{safe_seed}', org_id: '{safe_org}'}})"
             f"-[r]-(n:Memory {{org_id: '{safe_org}'}}) "

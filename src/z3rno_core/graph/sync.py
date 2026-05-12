@@ -21,9 +21,24 @@ from sqlalchemy import Connection, text
 GRAPH_NAME = "memory_graph"
 
 
-def _age_preamble() -> str:
-    """SQL preamble required before every AGE Cypher query."""
-    return "LOAD 'age'; SET search_path = ag_catalog, \"$user\", public;"
+def _age_exec(conn: Connection, cypher: str) -> None:
+    """Run ``LOAD 'age'`` + ``SET search_path`` + ``cypher`` as three
+    separate executes.
+
+    v0.21.1 — pre-fix this issued all three as one concatenated SQL
+    string. SQLAlchemy passes it through asyncpg's prepared-statement
+    path (true even via ``run_sync`` because the underlying driver is
+    still asyncpg under an async engine); asyncpg rejects multi-
+    command prepared statements with ``PostgresSyntaxError: cannot
+    insert multiple commands into a prepared statement``. Every AGE
+    write failed silently (caught by the best-effort savepoint in
+    ``graph_writer``), leaving the graph projection empty for any
+    distilled corpus. Surfaced during the v0.21 starter-kit smoke
+    (Bug G in operator-notes/V0-21-STARTER-KIT-SMOKE-2026-05-12.md).
+    """
+    conn.execute(text("LOAD 'age'"))
+    conn.execute(text('SET search_path = ag_catalog, "$user", public'))
+    conn.execute(text(cypher))
 
 
 def _validate_uuid_for_cypher(value: UUID) -> str:
@@ -71,7 +86,7 @@ def sync_memory_to_graph(
         f"RETURN m "
         f"$$) AS (v agtype)"
     )
-    conn.execute(text(f"{_age_preamble()} {cypher}"))
+    _age_exec(conn, cypher)
 
 
 def delete_memory_from_graph(
@@ -94,7 +109,7 @@ def delete_memory_from_graph(
         f"DETACH DELETE m "
         f"$$) AS (v agtype)"
     )
-    conn.execute(text(f"{_age_preamble()} {cypher}"))
+    _age_exec(conn, cypher)
 
 
 def sync_relationship_to_graph(
@@ -126,4 +141,4 @@ def sync_relationship_to_graph(
         f"RETURN r "
         f"$$) AS (e agtype)"
     )
-    conn.execute(text(f"{_age_preamble()} {cypher}"))
+    _age_exec(conn, cypher)

@@ -319,7 +319,6 @@ def _match_triplet_sync(
     transaction.
     """
     safe_org = _validate_uuid_for_cypher(org_id)
-    preamble = "LOAD 'age'; SET search_path = ag_catalog, \"$user\", public;"
 
     # Predicate goes verbatim into the Cypher edge label — validate it
     # to UPPER_SNAKE_CASE only. Entities are CONTAINS-matched on the
@@ -341,10 +340,13 @@ def _match_triplet_sync(
     nodes_returned: set[UUID] = set()
 
     with conn.begin_nested():
+        # v0.21.1 — LOAD + SET as separate statements; see Bug G.
+        conn.execute(text("LOAD 'age'"))
+        conn.execute(text('SET search_path = ag_catalog, "$user", public'))
+
         if subj != "?" and obj != "?":
             # Both ends known — find the relationship; return both endpoints.
             cypher = (
-                f"{preamble} "
                 f"SELECT * FROM cypher('{_GRAPH_NAME}', $$ "
                 f"MATCH (s:Memory)-{edge}-(o:Memory) "
                 f"WHERE s.org_id = '{safe_org}' AND o.org_id = '{safe_org}' "
@@ -362,7 +364,6 @@ def _match_triplet_sync(
         elif subj == "?":
             # Object known, subject unknown — find the subject.
             cypher = (
-                f"{preamble} "
                 f"SELECT * FROM cypher('{_GRAPH_NAME}', $$ "
                 f"MATCH (s:Memory)-{edge}-(o:Memory) "
                 f"WHERE s.org_id = '{safe_org}' AND o.org_id = '{safe_org}' "
@@ -378,7 +379,6 @@ def _match_triplet_sync(
         elif obj == "?":
             # Subject known, object unknown.
             cypher = (
-                f"{preamble} "
                 f"SELECT * FROM cypher('{_GRAPH_NAME}', $$ "
                 f"MATCH (s:Memory)-{edge}-(o:Memory) "
                 f"WHERE s.org_id = '{safe_org}' AND o.org_id = '{safe_org}' "
@@ -395,7 +395,6 @@ def _match_triplet_sync(
             # Both endpoints known but we don't know the relationship —
             # return any relationship between them.
             cypher = (
-                f"{preamble} "
                 f"SELECT * FROM cypher('{_GRAPH_NAME}', $$ "
                 f"MATCH (s:Memory)-[r]-(o:Memory) "
                 f"WHERE s.org_id = '{safe_org}' AND o.org_id = '{safe_org}' "

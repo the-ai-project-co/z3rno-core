@@ -1,70 +1,87 @@
 """Unit tests for graph helper functions.
 
-Tests _age_preamble and other pure helper functions from
+Tests _age_exec and other pure helper functions from
 z3rno_core.graph.queries and z3rno_core.graph.sync.
-No database connection needed.
+No database connection needed — mocks the SQLAlchemy Connection
+to assert the three-statement issue order (LOAD + SET + cypher).
 """
 
 from __future__ import annotations
 
+from unittest.mock import MagicMock
+
 from z3rno_core.graph.queries import (
     GRAPH_NAME as QUERIES_GRAPH_NAME,
-    _age_preamble as queries_age_preamble,
+    _age_exec as queries_age_exec,
 )
-from z3rno_core.graph.sync import GRAPH_NAME as SYNC_GRAPH_NAME, _age_preamble as sync_age_preamble
+from z3rno_core.graph.sync import (
+    GRAPH_NAME as SYNC_GRAPH_NAME,
+    _age_exec as sync_age_exec,
+)
 
-# ---------------------------------------------------------------------------
-# _age_preamble from graph/queries.py
-# ---------------------------------------------------------------------------
 
-
-class TestQueriesAgePreamble:
-    """Test _age_preamble from graph/queries.py."""
-
-    def test_returns_string(self) -> None:
-        result = queries_age_preamble()
-        assert isinstance(result, str)
-
-    def test_loads_age_extension(self) -> None:
-        result = queries_age_preamble()
-        assert "LOAD 'age'" in result
-
-    def test_sets_search_path(self) -> None:
-        result = queries_age_preamble()
-        assert "ag_catalog" in result
-
-    def test_includes_public_schema(self) -> None:
-        result = queries_age_preamble()
-        assert "public" in result
-
-    def test_includes_user_schema(self) -> None:
-        result = queries_age_preamble()
-        assert '"$user"' in result
+def _statements_issued(mock_conn: MagicMock) -> list[str]:
+    """Return the SQL string of every execute() call, in order."""
+    return [str(call.args[0]) for call in mock_conn.execute.call_args_list]
 
 
 # ---------------------------------------------------------------------------
-# _age_preamble from graph/sync.py
+# _age_exec from graph/queries.py
 # ---------------------------------------------------------------------------
 
 
-class TestSyncAgePreamble:
-    """Test _age_preamble from graph/sync.py."""
+class TestQueriesAgeExec:
+    """v0.21.1 — _age_exec issues LOAD + SET + cypher as three calls.
 
-    def test_returns_string(self) -> None:
-        result = sync_age_preamble()
-        assert isinstance(result, str)
+    Pre-v0.21.1 the preamble was concatenated into one SQL string and
+    asyncpg rejected it as a multi-command prepared statement. The
+    fix splits the issue order so each execute is a single statement.
+    """
 
-    def test_loads_age_extension(self) -> None:
-        result = sync_age_preamble()
-        assert "LOAD 'age'" in result
+    def test_issues_three_statements_in_order(self) -> None:
+        conn = MagicMock()
+        cypher = "SELECT * FROM cypher('g', $$ MATCH (n) RETURN n $$) AS (n agtype)"
+        queries_age_exec(conn, cypher)
 
-    def test_sets_search_path(self) -> None:
-        result = sync_age_preamble()
-        assert "ag_catalog" in result
+        stmts = _statements_issued(conn)
+        assert len(stmts) == 3
+        assert stmts[0] == "LOAD 'age'"
+        assert stmts[1] == 'SET search_path = ag_catalog, "$user", public'
+        assert stmts[2] == cypher
 
-    def test_matches_queries_preamble(self) -> None:
-        """Both modules should produce the same preamble."""
-        assert queries_age_preamble() == sync_age_preamble()
+    def test_returns_cypher_result(self) -> None:
+        """The cypher's CursorResult is returned, not the preamble's."""
+        conn = MagicMock()
+        cypher_result = MagicMock(name="cypher_result")
+        conn.execute.side_effect = [MagicMock(), MagicMock(), cypher_result]
+        result = queries_age_exec(conn, "SELECT 1")
+        assert result is cypher_result
+
+
+# ---------------------------------------------------------------------------
+# _age_exec from graph/sync.py
+# ---------------------------------------------------------------------------
+
+
+class TestSyncAgeExec:
+    """Mirror of TestQueriesAgeExec for the sync.py copy."""
+
+    def test_issues_three_statements_in_order(self) -> None:
+        conn = MagicMock()
+        cypher = "SELECT * FROM cypher('g', $$ CREATE (n:Memory) $$) AS (v agtype)"
+        sync_age_exec(conn, cypher)
+
+        stmts = _statements_issued(conn)
+        assert len(stmts) == 3
+        assert stmts[0] == "LOAD 'age'"
+        assert stmts[1] == 'SET search_path = ag_catalog, "$user", public'
+        assert stmts[2] == cypher
+
+    def test_returns_none(self) -> None:
+        """sync.py's _age_exec is fire-and-forget — None return."""
+        conn = MagicMock()
+        result = sync_age_exec(conn, "SELECT 1")
+        assert result is None
 
 
 # ---------------------------------------------------------------------------

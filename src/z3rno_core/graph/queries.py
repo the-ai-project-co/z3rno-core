@@ -21,9 +21,18 @@ from sqlalchemy.engine import CursorResult
 GRAPH_NAME = "memory_graph"
 
 
-def _age_preamble() -> str:
-    """SQL preamble required before every AGE Cypher query."""
-    return "LOAD 'age'; SET search_path = ag_catalog, \"$user\", public;"
+def _age_exec(conn: Connection, cypher: str) -> CursorResult[tuple[object, ...]]:
+    """Run ``LOAD 'age'`` + ``SET search_path`` + ``cypher`` as three
+    separate executes; return the cypher result.
+
+    v0.21.1 — pre-fix issued all three as one concatenated SQL
+    string. asyncpg rejects multi-command prepared statements, so
+    every AGE traversal silently returned an empty result set.
+    See ``sync.py`` for the same fix shape.
+    """
+    conn.execute(text("LOAD 'age'"))
+    conn.execute(text('SET search_path = ag_catalog, "$user", public'))
+    return conn.execute(text(cypher))
 
 
 def _validate_uuid_for_cypher(value: UUID) -> str:
@@ -61,7 +70,7 @@ def find_related_memories(
         f"RETURN DISTINCT related.id, type(last(r)) "
         f"$$) AS (related_id agtype, rel_type agtype)"
     )
-    return conn.execute(text(f"{_age_preamble()} {cypher}"))
+    return _age_exec(conn, cypher)
 
 
 def find_memory_chain(
@@ -92,7 +101,7 @@ def find_memory_chain(
         f"RETURN target.id, length(path) "
         f"$$) AS (target_id agtype, depth agtype)"
     )
-    return conn.execute(text(f"{_age_preamble()} {cypher}"))
+    return _age_exec(conn, cypher)
 
 
 def find_contradictions(
@@ -115,7 +124,7 @@ def find_contradictions(
         f"RETURN c.id, c.memory_type "
         f"$$) AS (contradicting_id agtype, memory_type agtype)"
     )
-    return conn.execute(text(f"{_age_preamble()} {cypher}"))
+    return _age_exec(conn, cypher)
 
 
 def find_shortest_path(
@@ -144,4 +153,4 @@ def find_shortest_path(
         f" RETURN length(path) "
         f"$$) AS (path_length agtype)"
     )
-    return conn.execute(text(f"{_age_preamble()} {cypher}"))
+    return _age_exec(conn, cypher)
