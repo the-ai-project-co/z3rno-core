@@ -227,7 +227,7 @@ class TestRecallQueryBuilding:
                 conn,
                 org_id=org_id,
                 agent_id=agent_id,
-                filters={"tag": "important"},
+                metadata_filter={"tag": "important"},
             )
 
         call_args = conn.execute.call_args_list[0]

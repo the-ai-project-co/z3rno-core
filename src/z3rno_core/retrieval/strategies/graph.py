@@ -72,7 +72,7 @@ class GraphStrategy(RetrievalStrategy):
         query: str,
         top_k: int,
         memory_type: str | None = None,
-        filters: dict[str, Any] | None = None,
+        metadata_filter: dict[str, Any] | None = None,
         similarity_threshold: float = 0.0,
         **extra: Any,
     ) -> list[StrategyResult]:
@@ -99,7 +99,8 @@ class GraphStrategy(RetrievalStrategy):
             org_id=org_id,
             agent_id=agent_id,
             memory_type=memory_type,
-            filters=filters,
+            user_id=extra.get("user_id"),
+            metadata_filter=metadata_filter,
             conversation_id=extra.get("conversation_id"),
             time_range=time_range,
             as_of=as_of,

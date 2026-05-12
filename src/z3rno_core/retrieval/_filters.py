@@ -18,8 +18,20 @@ def build_where_clause(
     *,
     org_id: UUID,
     agent_id: UUID,
+    # v0.21.1 — scope by end-user id (``memories.user_id`` column).
+    # Multi-user agents need this for per-user recall isolation. Indexed
+    # by migration 034 (partial index over (org_id, agent_id, user_id)).
+    # Optional — most agents are single-user-per-agent and don't pass it.
+    user_id: UUID | None = None,
     memory_type: str | None = None,
-    filters: dict[str, Any] | None = None,
+    # v0.21.2 — renamed from ``filters``. Semantic is
+    # ``metadata @> :metadata_filter`` (JSONB containment); the old
+    # name read like a general where-clause builder and caused silent
+    # zero-hit drops when callers passed keys that don't exist in
+    # stored metadata. ``filters`` stays as a deprecated alias one
+    # layer up in ``engine.recall``; the private helper takes the
+    # clean name only.
+    metadata_filter: dict[str, Any] | None = None,
     time_range: tuple[datetime, datetime] | None = None,
     as_of: datetime | None = None,
     include_deleted: bool = False,
@@ -37,6 +49,10 @@ def build_where_clause(
 
     conditions.append("agent_id = CAST(:agent_id AS uuid)")
     params["agent_id"] = str(agent_id)
+
+    if user_id is not None:
+        conditions.append("user_id = CAST(:user_id AS uuid)")
+        params["user_id"] = str(user_id)
 
     if as_of:
         conditions.append("valid_from <= CAST(:as_of AS timestamptz)")
@@ -58,9 +74,9 @@ def build_where_clause(
         params["time_start"] = time_range[0]
         params["time_end"] = time_range[1]
 
-    if filters:
+    if metadata_filter:
         conditions.append("metadata @> CAST(:meta_filter AS jsonb)")
-        params["meta_filter"] = json.dumps(filters)
+        params["meta_filter"] = json.dumps(metadata_filter)
 
     if conversation_id is not None:
         conditions.append("conversation_id = CAST(:conversation_id AS uuid)")

@@ -117,11 +117,11 @@ class TripletStrategy(RetrievalStrategy):
         query: str,
         top_k: int,
         memory_type: str | None = None,
-        filters: dict[str, Any] | None = None,
+        metadata_filter: dict[str, Any] | None = None,
         similarity_threshold: float = 0.0,
         **extra: Any,
     ) -> list[StrategyResult]:
-        del memory_type, filters, similarity_threshold  # TRIPLET ignores
+        del memory_type, metadata_filter, similarity_threshold  # TRIPLET ignores
 
         llm_gateway: LLMGateway | None = extra.get("llm_gateway")
         if llm_gateway is None:

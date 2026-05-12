@@ -109,11 +109,11 @@ class AskStrategy(RetrievalStrategy):
         query: str,
         top_k: int,
         memory_type: str | None = None,
-        filters: dict[str, Any] | None = None,
+        metadata_filter: dict[str, Any] | None = None,
         similarity_threshold: float = 0.0,
         **extra: Any,
     ) -> list[StrategyResult]:
-        del agent_id, memory_type, filters, similarity_threshold
+        del agent_id, memory_type, metadata_filter, similarity_threshold
 
         llm_gateway: LLMGateway | None = extra.get("llm_gateway")
         if llm_gateway is None:

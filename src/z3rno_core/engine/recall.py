@@ -136,6 +136,12 @@ async def recall(
     role: str | None = None,
     retrieval_filters: list[Any] | None = None,
     memory_type: str | None = None,
+    # v0.21.2 — renamed from ``filters``. Semantic is unchanged
+    # (``metadata @> :metadata_filter`` JSONB containment). ``filters``
+    # stays as a deprecated keyword alias below.
+    metadata_filter: dict[str, Any] | None = None,
+    # Deprecated alias for ``metadata_filter``. Honoured but emits a
+    # DeprecationWarning. Will be removed in a future release.
     filters: dict[str, Any] | None = None,
     # Phase G slice 2 — scope to a single conversation. When set,
     # every strategy filters by ``memories.conversation_id`` so
@@ -195,6 +201,20 @@ async def recall(
     """
     started = time.perf_counter()
 
+    # v0.21.2 — honour the deprecated ``filters`` kwarg with a one-shot
+    # warning. ``metadata_filter`` wins if both are passed.
+    if filters is not None and metadata_filter is None:
+        import warnings  # noqa: PLC0415
+
+        warnings.warn(
+            "engine.recall(filters=...) is deprecated; use metadata_filter=... instead. "
+            "The name was misleading — the semantic is JSONB metadata containment, not a "
+            "general where-clause builder. ``filters`` will be removed in a future release.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        metadata_filter = filters
+
     # Pre-strategy validation that produces the legacy RecallError shape so
     # SDK consumers catching the existing exception keep working. Strategy
     # internals raise their own ValueErrors for the same condition (defense
@@ -222,11 +242,14 @@ async def recall(
         query=query or "",
         top_k=top_k,
         memory_type=memory_type,
-        filters=filters,
+        metadata_filter=metadata_filter,
         conversation_id=conversation_id,
         similarity_threshold=similarity_threshold,
         # Strategy-specific kwargs flow through **extra. Each strategy
         # picks what it needs; unrecognised kwargs are silently ignored.
+        # v0.21.1 — user_id flows through here so each strategy's
+        # ``build_where_clause`` call can add it as a row predicate.
+        user_id=user_id,
         embedding_provider=embedding_provider,
         llm_gateway=llm_gateway,
         time_range=time_range,

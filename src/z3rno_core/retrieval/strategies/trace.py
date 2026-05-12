@@ -81,7 +81,7 @@ class TraceStrategy(RetrievalStrategy):
         query: str,
         top_k: int,
         memory_type: str | None = None,
-        filters: dict[str, Any] | None = None,
+        metadata_filter: dict[str, Any] | None = None,
         similarity_threshold: float = 0.0,
         **extra: Any,
     ) -> list[StrategyResult]:
@@ -113,7 +113,7 @@ class TraceStrategy(RetrievalStrategy):
                 query=current_query,
                 top_k=per_step_top_k,
                 memory_type=memory_type,
-                filters=filters,
+                metadata_filter=metadata_filter,
                 similarity_threshold=similarity_threshold,
                 **extra,
             )

@@ -115,7 +115,7 @@ class RetrievalStrategy(ABC):
         query: str,
         top_k: int,
         memory_type: str | None = None,
-        filters: dict[str, Any] | None = None,
+        metadata_filter: dict[str, Any] | None = None,
         similarity_threshold: float = 0.0,
         **extra: Any,
     ) -> list[StrategyResult]:
@@ -125,7 +125,7 @@ class RetrievalStrategy(ABC):
           * Issue all DB queries through ``conn`` — never open new
             connections, never switch DB roles. RLS context is the
             caller's responsibility.
-          * Honour ``memory_type`` and ``filters`` if relevant; strategies
+          * Honour ``memory_type`` and ``metadata_filter`` if relevant; strategies
             for which the filter doesn't apply silently ignore it.
           * Normalise ``relevance_score`` to the [0, 1] range. Raw
             per-source signals go in ``score_components``.

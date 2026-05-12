@@ -70,11 +70,11 @@ class CypherStrategy(RetrievalStrategy):
         query: str,
         top_k: int,
         memory_type: str | None = None,
-        filters: dict[str, Any] | None = None,
+        metadata_filter: dict[str, Any] | None = None,
         similarity_threshold: float = 0.0,
         **extra: Any,
     ) -> list[StrategyResult]:
-        del agent_id, memory_type, filters, similarity_threshold, query
+        del agent_id, memory_type, metadata_filter, similarity_threshold, query
 
         allow = bool(extra.get("allow_cypher_query", False))
         if not allow:
