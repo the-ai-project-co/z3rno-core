@@ -5,7 +5,7 @@ result + response dataclasses and the registry that lets the engine
 layer dispatch by name.
 
 Architectural choices are spelled out in
-``z3rno-process-docs/improvements/plans/PHASE-C-PLAN.md``. Highlights:
+``z3rno-local/improvements/plans/PHASE-C-PLAN.md``. Highlights:
 
 * Strategies own *retrieval*, not *recording*. The engine layer writes
   audit_log and bumps recall_count after fusion / re-rank — strategies

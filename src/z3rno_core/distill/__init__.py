@@ -16,7 +16,7 @@ Modules
 Phase A surface is **opt-in**: every public verb is a no-op unless
 ``DISTILL_ENABLED=true`` in z3rno-server settings.
 
-See ``z3rno-process-docs/improvements/plans/03-phase-a-extraction-layer.md`` for
+See ``z3rno-local/improvements/plans/03-phase-a-extraction-layer.md`` for
 the full Phase A design and acceptance criteria.
 """
 

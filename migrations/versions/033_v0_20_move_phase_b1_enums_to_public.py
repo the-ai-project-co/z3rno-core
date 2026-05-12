@@ -15,7 +15,7 @@ exist`` because the unqualified enum lookup hits ``public`` first
 or after operators removed ag_catalog from search_path).
 
 Surfaced during the v0.20 starter-kit smoke (2026-05-12). See
-``z3rno-process-docs/improvements/operator-notes/
+``z3rno-local/improvements/operator-notes/
 V0-20-STARTER-KIT-SMOKE-2026-05-12.md`` Bug C for the full trace.
 
 Idempotent: only moves a type when it's currently in ``ag_catalog``.

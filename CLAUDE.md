@@ -41,14 +41,14 @@ make seed                        # Load dev seed data
 - `migrations/versions/` — 28 Alembic migrations (001–028; **016** = Phase B.1 datasets/ingest_jobs; **023** = Phase D memo_type/ontology_uri columns + feedback table; **024** = refine_jobs table; **025** = Phase F memories.distill_provenance + 'distill' audit op; **026** = memo_versions SCD-2 shadow for graph-node properties; **027** = forget_certificates table — Merkle-rooted, ed25519-signed proof-of-erasure; **028** = Phase G conversations table + memories.conversation_id/turn_index/turn_role columns)
 - `seeds/dev_seed.py` — Dev seed data (2 tenants, 500 memories, 1000 audit entries)
 - `docs/` — SCHEMA.md, MULTI_TENANCY.md, ADR-001
-- `../z3rno-process-docs/improvements/references/PHASE-A-IMPLEMENTATION.md` — full operator reference for the Forge pipeline
-- `../z3rno-process-docs/improvements/references/PHASE-B1-IMPLEMENTATION.md` — full operator reference for the Ingestion surface
-- `../z3rno-process-docs/improvements/references/PHASE-B2-IMPLEMENTATION.md` — full operator reference for Multimodal + Search + S3 + Playwright
-- `../z3rno-process-docs/improvements/references/PHASE-C-IMPLEMENTATION.md` — full operator reference for the retrieval strategies
-- `../z3rno-process-docs/improvements/references/PHASE-D-IMPLEMENTATION.md` — full operator reference for refine + ontology + codegraph
+- `../z3rno-local/improvements/references/PHASE-A-IMPLEMENTATION.md` — full operator reference for the Forge pipeline
+- `../z3rno-local/improvements/references/PHASE-B1-IMPLEMENTATION.md` — full operator reference for the Ingestion surface
+- `../z3rno-local/improvements/references/PHASE-B2-IMPLEMENTATION.md` — full operator reference for Multimodal + Search + S3 + Playwright
+- `../z3rno-local/improvements/references/PHASE-C-IMPLEMENTATION.md` — full operator reference for the retrieval strategies
+- `../z3rno-local/improvements/references/PHASE-D-IMPLEMENTATION.md` — full operator reference for refine + ontology + codegraph
 - `../z3rno-docs/concepts/verbs.mdx` — canonical Z3rno verb table (store / recall / forget / audit / ingest / distill / refine)
 
-Process docs are subfoldered by lifecycle stage under `../z3rno-process-docs/improvements/`: `plans/` (original phase planning), `references/` (as-shipped operator refs + glossary), `changelogs/` (per-release), `operator-notes/` (dated runs), `status/` (OPEN-WORK + SHIPPED-STATUS + PHASE-3-DEFERRED-TESTS). Start at `improvements/README.md` for the index or `improvements/status/SHIPPED-STATUS.md` for current state.
+Process docs are subfoldered by lifecycle stage under `../z3rno-local/improvements/`: `plans/` (original phase planning), `references/` (as-shipped operator refs + glossary), `changelogs/` (per-release), `operator-notes/` (dated runs), `status/` (OPEN-WORK + SHIPPED-STATUS + PHASE-3-DEFERRED-TESTS). Start at `improvements/README.md` for the index or `improvements/status/SHIPPED-STATUS.md` for current state.
 
 ## Phase A — Forge (opt-in)
 
