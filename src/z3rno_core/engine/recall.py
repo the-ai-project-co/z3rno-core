@@ -168,6 +168,13 @@ async def recall(
     # synchronous because the hash chain is order-sensitive.
     write_engine: Any = None,
     bump_counters_async: bool = False,
+    # v0.22.0 — opt-in batched recall_count bump. When True (and
+    # ``write_engine`` is supplied), increments are queued on the
+    # process-local ``RecallCountBatcher`` and flushed every
+    # ``RECALL_COUNT_BATCH_WINDOW_MS`` ms as one UPDATE per org.
+    # Mutually exclusive with ``bump_counters_async``; if both are
+    # True, batched wins.
+    bump_counters_batched: bool = False,
     top_k: int = 10,
     similarity_threshold: float = 0.0,
     time_range: tuple[datetime, datetime] | None = None,
@@ -308,7 +315,14 @@ async def recall(
     write_target = write_conn or conn
     if results:
         memory_ids = sorted(str(r.memory_id) for r in results)
-        if bump_counters_async and write_engine is not None:
+        if bump_counters_batched and write_engine is not None:
+            # v0.22.0 — coalesce into the process-local batcher.
+            # Returns immediately; the drain task flushes within
+            # one window (default 50 ms).
+            from z3rno_core.engine.recall_batch import get_batcher
+
+            get_batcher(write_engine).bump(org_id=org_id, memory_ids=memory_ids)
+        elif bump_counters_async and write_engine is not None:
             # v0.20.5 — fire-and-forget on a fresh conn from the
             # primary engine. Strong-ref the task so it isn't GC'd
             # before it runs; failures are swallowed because a
