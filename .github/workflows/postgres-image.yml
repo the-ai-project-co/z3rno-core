@@ -82,7 +82,14 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
-          platforms: linux/amd64  # arm64 can be added once pgvectorscale publishes arm64 binaries
+          # v0.21.3 — pgvectorscale 0.9.0 (2025-11-04) shipped ARM64
+          # binaries. Dockerfile URL template already keys on $ARCH
+          # via dpkg --print-architecture, so multi-arch buildx with
+          # both platforms works directly. Apple Silicon dev users
+          # + Graviton/Ampere cloud nodes no longer need the
+          # platform: linux/amd64 Rosetta workaround. Closes
+          # Finding #1 from V0-21-2-AS-A-USER-2026-05-12.
+          platforms: linux/amd64,linux/arm64
 
       # v0.21.3 — public mirror at ghcr.io/safayavatsal/z3rno-postgres.
       # Same shape as the server image's mirror — the org-namespace
@@ -127,7 +134,7 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
-          platforms: linux/amd64
+          platforms: linux/amd64,linux/arm64
 
   smoke-test:
     name: Smoke test (extensions load)
