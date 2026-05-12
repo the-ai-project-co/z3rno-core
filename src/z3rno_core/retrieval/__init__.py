@@ -13,7 +13,7 @@ Callers that want to dispatch by name should either:
     import loads the strategies for you.
   * Or explicitly import ``z3rno_core.retrieval.strategies`` first.
 
-See ``z3rno-process-docs/improvements/PHASE-C-PLAN.md`` for the
+See ``z3rno-process-docs/improvements/plans/PHASE-C-PLAN.md`` for the
 phase-wide architecture.
 """
 
