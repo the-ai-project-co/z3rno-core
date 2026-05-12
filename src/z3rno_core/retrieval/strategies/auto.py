@@ -112,10 +112,13 @@ _GRAPH_CORPUS_TTL_SECONDS = 60.0
 async def _has_graph_corpus(
     conn: AsyncConnection, *, org_id: UUID, agent_id: UUID
 ) -> bool:
-    """Return True when the (org_id, agent_id) has any AGE-projected edges.
+    """Return True when the org has any AGE-projected edges.
 
     Probes ``memory_relationships`` (the canonical edge table that
-    Forge distill, refine, and graph_writer all write to). Caches
+    Forge distill, refine, and graph_writer all write to). The table
+    is org-scoped only (no ``agent_id`` column — edges live across
+    agents within a tenant), so the probe filters on org alone but
+    the cache key still includes agent for forward-compat. Caches
     the answer per (org, agent) for ``_GRAPH_CORPUS_TTL_SECONDS``.
     On any DB error, returns True conservatively — "we don't know, let
     the chosen strategy try" — so this can never make AUTO worse than
@@ -130,10 +133,10 @@ async def _has_graph_corpus(
         result = await conn.execute(
             text(
                 "SELECT 1 FROM memory_relationships "
-                "WHERE org_id = CAST(:o AS uuid) AND agent_id = CAST(:a AS uuid) "
+                "WHERE org_id = CAST(:o AS uuid) "
                 "LIMIT 1"
             ),
-            {"o": str(org_id), "a": str(agent_id)},
+            {"o": str(org_id)},
         )
         has_corpus = result.first() is not None
     except Exception:  # noqa: BLE001
