@@ -3,6 +3,9 @@
 [![PyPI](https://img.shields.io/pypi/v/z3rno-core)](https://pypi.org/project/z3rno-core/)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![CI](https://github.com/the-ai-project-co/z3rno-core/actions/workflows/ci.yml/badge.svg)](https://github.com/the-ai-project-co/z3rno-core/actions/workflows/ci.yml)
+[![GitHub downloads](https://img.shields.io/github/downloads/the-ai-project-co/z3rno-core/total)](https://github.com/the-ai-project-co/z3rno-core/releases)
+[![PyPI downloads](https://static.pepy.tech/badge/z3rno-core)](https://pepy.tech/project/z3rno-core)
+[![GHCR image](https://ghcr-badge.elias.eu.org/the-ai-project-co/z3rno-postgres/latest_tag?label=ghcr%20image)](https://github.com/orgs/the-ai-project-co/packages/container/package/z3rno-postgres)
 
 Core memory engine for Z3rno -- PostgreSQL schema, SQLAlchemy models, Alembic migrations, and the store/recall/forget/audit library.
 
